@@ -1,0 +1,50 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <MASM Include="src\main.asm" />
+    <MASM Include="src\runtime.asm" />
+    <MASM Include="src\lexer.asm" />
+    <MASM Include="src\parser.asm" />
+    <MASM Include="src\evaluator.asm" />
+    <MASM Include="src\symtable.asm" />
+    <MASM Include="src\executor.asm" />
+    <MASM Include="src\fileio.asm" />
+    <MASM Include="src\debugger.asm" />
+    <MASM Include="src\shell.asm" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="include\defines.inc" />
+    <None Include="include\globals.inc" />
+    <None Include="programs\hello.kid" />
+    <None Include="programs\variables.kid" />
+    <None Include="programs\calculator.kid" />
+    <None Include="programs\loops.kid" />
+    <None Include="programs\conditions.kid" />
+    <None Include="programs\functions.kid" />
+    <None Include="programs\strings.kid" />
+    <None Include="programs\grades.kid" />
+    <None Include="programs\fibonacci.kid" />
+    <None Include="programs\guessing_game.kid" />
+    <None Include="programs\demo_all_features.kid" />
+    <None Include="docs\README.md" />
+    <None Include="docs\language_guide.md" />
+    <None Include="docs\build_instructions.md" />
+    <None Include="kidi.kid">
+      <Filter>src</Filter>
+    </None>
+    <None Include="case_inconsistency.kid">
+      <Filter>src</Filter>
+    </None>
+    <None Include="syntax error.kid">
+      <Filter>src</Filter>
+    </None>
+    <None Include="practice.kid">
+      <Filter>src</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="src">
+      <UniqueIdentifier>{602f00a4-4c44-473c-87fc-f4516891bb39}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

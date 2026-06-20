@@ -1,0 +1,1833 @@
+Microsoft (R) Macro Assembler Version 14.50.35724.0	    06/08/26 21:02:56
+src\shell.asm						     Page 1 - 1
+
+
+				; ============================================================
+				; Interactive REPL (Read-Eval-Print Loop) Shell
+				; Allows children to type KidLang commands interactively
+				; ============================================================
+				 
+				INCLUDE Irvine32.inc
+			      C ; Include file for Irvine32.lib             (Irvine32.inc)
+			      C 
+			      C ;OPTION CASEMAP:NONE		; optional: make identifiers case-sensitive
+			      C 
+			      C INCLUDE SmallWin.inc		; MS-Windows prototypes, structures, and constants
+			      C .NOLIST
+			      C .LIST
+			      C 
+			      C INCLUDE VirtualKeys.inc
+			      C ; VirtualKeys.inc
+			      C .NOLIST
+			      C .LIST
+			      C 
+			      C 
+			      C .NOLIST
+			      C .LIST
+			      C 
+				INCLUDE defines.inc
+			      C ; ============================================================
+			      C ; All constants, token type codes, error codes, limits
+			      C ; ============================================================
+			      C 
+			      C ; ---- Buffer / Size Limits ----
+ = 00010000		      C MAX_SOURCE_SIZE     EQU 65536       ; 64KB max source file
+ = 00000080		      C MAX_TOKEN_LEN       EQU 128         ; max token string length
+ = 00000800		      C MAX_TOKENS          EQU 2048        ; max tokens per program
+ = 00000100		      C MAX_VARIABLES       EQU 256         ; max variables in symbol table
+ = 00000040		      C MAX_FUNCTIONS       EQU 64          ; max user-defined functions
+ = 00000020		      C MAX_CALL_STACK      EQU 32          ; max call stack depth
+ = 00000200		      C MAX_STRING_LEN      EQU 512         ; max string value length
+ = 00000400		      C MAX_LINE_LEN        EQU 1024        ; max source line length
+ = 00000800		      C MAX_LINES           EQU 2048        ; max lines in source
+ = 00000104		      C MAX_FILENAME        EQU 260         ; max filename length
+ = 00000040		      C MAX_ERRORS          EQU 64          ; max errors to collect
+			      C 
+			      C ; ---- Token Types ----
+			      C ; Special
+ = 00000000		      C TOK_EOF             EQU 0
+ = 00000001		      C TOK_NEWLINE         EQU 1
+ = 00000002		      C TOK_ERROR           EQU 2
+			      C 
+			      C ; Literals
+ = 0000000A		      C TOK_INTEGER         EQU 10
+ = 0000000B		      C TOK_FLOAT           EQU 11
+ = 0000000C		      C TOK_STRING          EQU 12
+ = 0000000D		      C TOK_CHAR            EQU 13
+ = 0000000E		      C TOK_BOOL_TRUE       EQU 14
+ = 0000000F		      C TOK_BOOL_FALSE      EQU 15
+			      C 
+			      C ; Identifiers
+ = 00000014		      C TOK_IDENT           EQU 20
+			      C 
+			      C ; Keywords - Output/Input
+ = 0000001E		      C TOK_SHOW            EQU 30
+ = 0000001F		      C TOK_PRINT           EQU 31
+ = 00000020		      C TOK_ASK             EQU 32
+ = 00000021		      C TOK_INPUT           EQU 33
+ = 00000022		      C TOK_SHOWL           EQU 34      ; SHOWL = SHOW without newline (inline)
+			      C 
+			      C ; Keywords - Variables
+ = 00000028		      C TOK_SET             EQU 40
+ = 00000029		      C TOK_LET             EQU 41
+ = 0000002A		      C TOK_CONST           EQU 42
+ = 0000002B		      C TOK_VAR             EQU 43
+			      C 
+			      C ; Keywords - Control Flow
+ = 00000032		      C TOK_IF              EQU 50
+ = 00000033		      C TOK_THEN            EQU 51
+ = 00000034		      C TOK_ELSE            EQU 52
+ = 00000035		      C TOK_ELIF            EQU 53
+ = 00000036		      C TOK_END             EQU 54
+ = 00000037		      C TOK_ENDIF           EQU 55
+			      C 
+			      C ; Keywords - Loops
+ = 0000003C		      C TOK_WHILE           EQU 60
+ = 0000003D		      C TOK_DO              EQU 61
+ = 0000003E		      C TOK_FOR             EQU 62
+ = 0000003F		      C TOK_TO              EQU 63
+ = 00000040		      C TOK_STEP            EQU 64
+ = 00000041		      C TOK_BREAK           EQU 65
+ = 00000042		      C TOK_CONTINUE        EQU 66
+ = 00000043		      C TOK_ENDWHILE        EQU 67
+ = 00000044		      C TOK_ENDFOR          EQU 68
+			      C 
+			      C ; Keywords - Functions
+ = 00000046		      C TOK_FUNC            EQU 70
+ = 00000047		      C TOK_ENDFUNC         EQU 71
+ = 00000048		      C TOK_RETURN          EQU 72
+ = 00000049		      C TOK_CALL            EQU 73
+			      C 
+			      C ; Keywords - Switch
+ = 00000050		      C TOK_SWITCH          EQU 80
+ = 00000051		      C TOK_CASE            EQU 81
+ = 00000052		      C TOK_DEFAULT         EQU 82
+ = 00000053		      C TOK_ENDSWITCH       EQU 83
+			      C 
+			      C ; Keywords - Debug/Info
+ = 0000005A		      C TOK_SHOW_VARS       EQU 90
+ = 0000005B		      C TOK_DEBUG_ON        EQU 91
+ = 0000005C		      C TOK_DEBUG_OFF       EQU 92
+ = 0000005D		      C TOK_TRACE_ON        EQU 93
+ = 0000005E		      C TOK_TRACE_OFF       EQU 94
+ = 0000005F		      C TOK_PAUSE           EQU 95
+ = 00000060		      C TOK_CLEAR           EQU 96
+ = 00000061		      C TOK_WAIT            EQU 97
+			      C 
+			      C ; Keywords - Type Declarations
+ = 00000064		      C TOK_INTEGER_TYPE    EQU 100
+ = 00000065		      C TOK_FLOAT_TYPE      EQU 101
+ = 00000066		      C TOK_STRING_TYPE     EQU 102
+ = 00000067		      C TOK_CHAR_TYPE       EQU 103
+ = 00000068		      C TOK_BOOL_TYPE       EQU 104
+			      C 
+			      C ; Arithmetic Operators
+ = 0000006E		      C TOK_PLUS            EQU 110
+ = 0000006F		      C TOK_MINUS           EQU 111
+ = 00000070		      C TOK_MULTIPLY        EQU 112
+ = 00000071		      C TOK_DIVIDE          EQU 113
+ = 00000072		      C TOK_MODULO          EQU 114
+ = 00000073		      C TOK_POWER           EQU 115
+			      C 
+			      C ; Relational Operators
+ = 00000078		      C TOK_EQ              EQU 120     ; ==
+ = 00000079		      C TOK_NEQ             EQU 121     ; !=
+ = 0000007A		      C TOK_LT              EQU 122     ; <
+ = 0000007B		      C TOK_GT              EQU 123     ; >
+ = 0000007C		      C TOK_LTE             EQU 124     ; <=
+ = 0000007D		      C TOK_GTE             EQU 125     ; >=
+			      C 
+			      C ; Logical Operators
+ = 00000082		      C TOK_AND             EQU 130
+ = 00000083		      C TOK_OR              EQU 131
+ = 00000084		      C TOK_NOT             EQU 132
+			      C 
+			      C ; Assignment
+ = 0000008C		      C TOK_ASSIGN          EQU 140     ; =
+ = 0000008D		      C TOK_PLUS_ASSIGN     EQU 141     ; +=
+ = 0000008E		      C TOK_MINUS_ASSIGN    EQU 142     ; -=
+ = 0000008F		      C TOK_MUL_ASSIGN      EQU 143     ; *=
+ = 00000090		      C TOK_DIV_ASSIGN      EQU 144     ; /=
+			      C 
+			      C ; Increment/Decrement
+ = 00000096		      C TOK_INCREMENT       EQU 150     ; ++
+ = 00000097		      C TOK_DECREMENT       EQU 151     ; --
+			      C 
+			      C ; Punctuation
+ = 000000A0		      C TOK_LPAREN          EQU 160     ; (
+ = 000000A1		      C TOK_RPAREN          EQU 161     ; )
+ = 000000A2		      C TOK_LBRACKET        EQU 162     ; [
+ = 000000A3		      C TOK_RBRACKET        EQU 163     ; ]
+ = 000000A4		      C TOK_COMMA           EQU 164     ; ,
+ = 000000A5		      C TOK_COLON           EQU 165     ; :
+ = 000000A6		      C TOK_SEMICOLON       EQU 166     ; ;
+ = 000000A7		      C TOK_DOT             EQU 167     ; .
+ = 000000A8		      C TOK_QUOTE           EQU 168     ; "
+ = 000000A9		      C TOK_HASH            EQU 169     ; # (comment)
+			      C 
+			      C ; ---- Variable / Value Types ----
+ = 00000001		      C VTYPE_INTEGER       EQU 1
+ = 00000002		      C VTYPE_FLOAT         EQU 2
+ = 00000003		      C VTYPE_STRING        EQU 3
+ = 00000004		      C VTYPE_CHAR          EQU 4
+ = 00000005		      C VTYPE_BOOL          EQU 5
+ = 00000000		      C VTYPE_UNDEFINED     EQU 0
+			      C 
+			      C ; ---- Menu Choices ----
+ = 00000001		      C MENU_RUN_FILE       EQU 1
+ = 00000002		      C MENU_DEBUG_FILE     EQU 2
+ = 00000003		      C MENU_STEP_FILE      EQU 3
+ = 00000004		      C MENU_INTERACTIVE    EQU 4
+ = 00000005		      C MENU_HELP           EQU 5
+ = 00000006		      C MENU_EXIT           EQU 6
+			      C 
+			      C ; ---- Error Codes ----
+ = 00000000		      C ERR_NONE            EQU 0
+ = 00000001		      C ERR_FILE_NOT_FOUND  EQU 1
+ = 00000002		      C ERR_FILE_READ       EQU 2
+ = 00000003		      C ERR_SYNTAX          EQU 3
+ = 00000004		      C ERR_UNDEFINED_VAR   EQU 4
+ = 00000005		      C ERR_DIV_BY_ZERO     EQU 5
+ = 00000006		      C ERR_TYPE_MISMATCH   EQU 6
+ = 00000007		      C ERR_STACK_OVERFLOW  EQU 7
+ = 00000008		      C ERR_INVALID_OP      EQU 8
+ = 00000009		      C ERR_TOO_MANY_VARS   EQU 9
+ = 0000000A		      C ERR_FUNC_NOT_FOUND  EQU 10
+ = 0000000B		      C ERR_INVALID_ARGS    EQU 11
+ = 0000000C		      C ERR_UNEXPECTED_TOK  EQU 12
+ = 0000000D		      C ERR_MISSING_END     EQU 13
+ = 0000000E		      C ERR_RETURN_OUTSIDE  EQU 14
+ = 0000000F		      C ERR_BREAK_OUTSIDE   EQU 15
+			      C 
+			      C ; ---- Runtime Control Codes ----
+ = 00000000		      C EXEC_NORMAL         EQU 0
+ = 00000001		      C EXEC_BREAK          EQU 1
+ = 00000002		      C EXEC_CONTINUE       EQU 2
+ = 00000003		      C EXEC_RETURN         EQU 3
+ = 00000004		      C EXEC_ERROR          EQU 4
+			      C 
+			      C ; ---- Colors (Irvine32) ----
+			      C ; Already defined in Irvine32 but redefined for clarity
+ = 00000000		      C BLACK_C             EQU 0
+ = 00000001		      C BLUE_C              EQU 1
+ = 00000002		      C GREEN_C             EQU 2
+ = 00000003		      C CYAN_C              EQU 3
+ = 00000004		      C RED_C               EQU 4
+ = 00000005		      C MAGENTA_C           EQU 5
+ = 00000006		      C BROWN_C             EQU 6
+ = 00000007		      C LIGHTGRAY_C         EQU 7
+ = 00000008		      C DARKGRAY_C          EQU 8
+ = 00000009		      C LIGHTBLUE_C         EQU 9
+ = 0000000A		      C LIGHTGREEN_C        EQU 10
+ = 0000000B		      C LIGHTCYAN_C         EQU 11
+ = 0000000C		      C LIGHTRED_C          EQU 12
+ = 0000000D		      C LIGHTMAGENTA_C      EQU 13
+ = 0000000E		      C YELLOW_C            EQU 14
+ = 0000000F		      C WHITE_C             EQU 15
+			      C 
+			      C ; ---- Display prefix codes ----
+ = 00000001		      C PREFIX_INFO         EQU 1
+ = 00000002		      C PREFIX_DEBUG        EQU 2
+ = 00000003		      C PREFIX_ERROR        EQU 3
+ = 00000004		      C PREFIX_TRACE        EQU 4
+ = 00000005		      C PREFIX_WARN         EQU 5
+			      C 
+			      C ; ---- Execution Flags ----
+ = 00000001		      C FLAG_IN_LOOP        EQU 01h
+ = 00000002		      C FLAG_IN_FUNC        EQU 02h
+ = 00000004		      C FLAG_IN_IF          EQU 04h
+ = 00000008		      C FLAG_DEBUG          EQU 08h
+ = 00000010		      C FLAG_STEP           EQU 10h
+ = 00000020		      C FLAG_TRACE          EQU 20h
+ = 00000040		      C FLAG_SKIP_BLOCK     EQU 40h     ; skipping false IF block
+			      C 
+				INCLUDE globals.inc
+			      C ; ============================================================
+			      C ; Global shared data structures used across all modules
+			      C ; ============================================================
+			      C 
+			      C ; ---- TOKEN STRUCTURE ----
+			      C ; Each token is 200 bytes total:
+			      C ;   type   DWORD  (4 bytes)  - token type code
+			      C ;   value  BYTE[128]         - token string value (null-terminated)
+			      C ;   line   DWORD  (4 bytes)  - source line number
+			      C ;   col    DWORD  (4 bytes)  - source column number
+			      C ;   ival   DWORD  (4 bytes)  - integer value (if numeric token)
+			      C ;   fval   REAL4  (4 bytes)  - float value (if float token)
+			      C ;   pad    BYTE[52]          - padding to 200 bytes
+ = 000000C8		      C TOKEN_SIZE          EQU 200
+ = 00000000		      C TOKEN_OFF_TYPE      EQU 0
+ = 00000004		      C TOKEN_OFF_VALUE     EQU 4
+ = 00000084		      C TOKEN_OFF_LINE      EQU 132
+ = 00000088		      C TOKEN_OFF_COL       EQU 136
+ = 0000008C		      C TOKEN_OFF_IVAL      EQU 140
+ = 00000090		      C TOKEN_OFF_FVAL      EQU 144
+ = 00000094		      C TOKEN_OFF_PAD       EQU 148
+			      C 
+			      C ; ---- VARIABLE STRUCTURE ----
+			      C ; Each variable entry is 600 bytes:
+			      C ;   name   BYTE[128]         - variable name (normalized lowercase)
+			      C ;   type   DWORD  (4 bytes)  - VTYPE_xxx
+			      C ;   ival   DWORD  (4 bytes)  - integer value
+			      C ;   fval   REAL4  (4 bytes)  - float value
+			      C ;   sval   BYTE[256]         - string value
+			      C ;   cval   BYTE   (1 byte)   - char value
+			      C ;   bval   BYTE   (1 byte)   - bool value (0=false,1=true)
+			      C ;   isConst BYTE  (1 byte)   - 1 if constant
+			      C ;   pad    BYTE[201]         - padding to 600 bytes
+ = 00000258		      C VAR_SIZE            EQU 600
+ = 00000000		      C VAR_OFF_NAME        EQU 0
+ = 00000080		      C VAR_OFF_TYPE        EQU 128
+ = 00000084		      C VAR_OFF_IVAL        EQU 132
+ = 00000088		      C VAR_OFF_FVAL        EQU 136
+ = 0000008C		      C VAR_OFF_SVAL        EQU 140
+ = 0000018C		      C VAR_OFF_CVAL        EQU 396
+ = 0000018D		      C VAR_OFF_BVAL        EQU 397
+ = 0000018E		      C VAR_OFF_ISCONST     EQU 398
+ = 0000018F		      C VAR_OFF_PAD         EQU 399
+			      C 
+			      C ; ---- FUNCTION STRUCTURE ----
+			      C ; Each function entry is 400 bytes:
+			      C ;   name      BYTE[128]      - function name (lowercase)
+			      C ;   tokenStart DWORD         - index of first token in function body
+			      C ;   tokenEnd   DWORD         - index of last token in function body
+			      C ;   paramCount DWORD         - number of parameters
+			      C ;   params    BYTE[128]      - param names (each 16 bytes, max 8 params)
+			      C ;   pad       BYTE[128]      - padding
+ = 00000190		      C FUNC_SIZE           EQU 400
+ = 00000000		      C FUNC_OFF_NAME       EQU 0
+ = 00000080		      C FUNC_OFF_TOKSTART   EQU 128
+ = 00000084		      C FUNC_OFF_TOKEND     EQU 132
+ = 00000088		      C FUNC_OFF_PARAMCOUNT EQU 136
+ = 0000008C		      C FUNC_OFF_PARAMS     EQU 140
+ = 0000010C		      C FUNC_OFF_PAD        EQU 268
+			      C 
+			      C ; ---- SHARED GLOBAL MEMORY LAYOUT ----
+			      C ; All modules access these through EXTERN declarations
+			      C ; Defined once in runtime.asm
+			      C 
+			      C ; Source file buffer:       sourceBuffer[MAX_SOURCE_SIZE]
+			      C ; Source file size:         sourceSize DWORD
+			      C ; Source filename:          sourceFilename[MAX_FILENAME]
+			      C ; Current source line:      currentLine DWORD
+			      C 
+			      C ; Token array:              tokenArray[MAX_TOKENS * TOKEN_SIZE]
+			      C ; Token count:              tokenCount DWORD
+			      C ; Current token index:      tokenIndex DWORD
+			      C 
+			      C ; Symbol table (variables):  varTable[MAX_VARIABLES * VAR_SIZE]
+			      C ; Variable count:            varCount DWORD
+			      C 
+			      C ; Function table:            funcTable[MAX_FUNCTIONS * FUNC_SIZE]
+			      C ; Function count:            funcCount DWORD
+			      C 
+			      C ; Runtime flags:             runtimeFlags DWORD
+			      C ; Runtime error code:        runtimeError DWORD
+			      C ; Runtime error line:        runtimeErrorLine DWORD
+			      C ; Runtime error message:     runtimeErrorMsg[256]
+			      C 
+			      C ; Execution control:         execControl DWORD  (EXEC_NORMAL etc)
+			      C ; Return value integer:      returnValInt DWORD
+			      C ; Return value float:        returnValFloat REAL4
+			      C ; Return value string:       returnValStr[MAX_STRING_LEN]
+			      C ; Return value type:         returnValType DWORD
+			      C 
+			      C ; Call stack depth:          callDepth DWORD
+			      C ; Call stack return indices: callStack[MAX_CALL_STACK * 4]
+			      C 
+			      C ; Debug mode flag:           g_debugMode DWORD
+			      C ; Step mode flag:            g_stepMode DWORD
+			      C ; Trace mode flag:           g_traceMode DWORD
+			      C 
+			      C ; ---- MACROS for common operations ----
+			      C 
+			      C ; Print a string literal in debug color
+			      C DBGPRINT MACRO strAddr
+			      C     LOCAL skip    push    eax    push    edx    mov     eax, g_debugMode
+			      C     cmp     eax, 0    je      skip
+			      C     mov     eax, LIGHTCYAN_C    call    SetTextColor    mov     edx, strAddr
+			      C     call    WriteString    call    Crlf    mov     eax, WHITE_C    call    SetTextColorskip:
+			      C     pop     edx    pop     eaxENDM
+			      C 
+			      C ; Print a trace message
+			      C TRACEPRINT MACRO strAddr
+			      C     LOCAL skip    push    eax    push    edx    mov     eax, g_traceMode
+			      C     cmp     eax, 0    je      skip
+			      C     mov     eax, LIGHTGREEN_C    call    SetTextColor    mov     edx, strAddr
+			      C     call    WriteString    call    Crlf    mov     eax, WHITE_C    call    SetTextColorskip:
+			      C     pop     edx    pop     eaxENDM
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+			      C 
+				 
+				EXTERN sourceBuffer     : BYTE
+				EXTERN sourceSize       : DWORD
+				EXTERN tokenArray       : BYTE
+				EXTERN tokenCount       : DWORD
+				EXTERN tokenIndex       : DWORD
+				EXTERN g_debugMode      : DWORD
+				EXTERN g_traceMode      : DWORD
+				EXTERN g_stepMode       : DWORD
+				EXTERN varCount         : DWORD
+				InitRuntime     PROTO
+				RunLexer        PROTO
+				RunParser       PROTO
+				RunExecutor     PROTO
+				ShowSymbolTable PROTO
+				PrintInfo       PROTO
+				PrintDebug      PROTO
+				PrintError      PROTO
+				 
+ 00000000			.data
+				 
+				; ---- Shell UI strings ----
+ 00000000 20 20 3D 3D 3D	shell_banner1   BYTE "  ===================================",0
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 3D
+	   3D 3D 00
+ 00000026 20 20 4B 49 44	shell_banner2   BYTE "  KIDLANG INTERACTIVE SHELL v1.0",0
+	   4C 41 4E 47 20
+	   49 4E 54 45 52
+	   41 43 54 49 56
+	   45 20 53 48 45
+	   4C 4C 20 76 31
+	   2E 30 00
+ 00000047 20 20 54 79 70	shell_banner3   BYTE "  Type KidLang commands directly!",0
+	   65 20 4B 69 64
+	   4C 61 6E 67 20
+	   63 6F 6D 6D 61
+	   6E 64 73 20 64
+	   69 72 65 63 74
+	   6C 79 21 00
+ 00000069 20 20 54 79 70	shell_banner4   BYTE "  Type 'exit' or 'quit' to leave.",0
+	   65 20 27 65 78
+	   69 74 27 20 6F
+	   72 20 27 71 75
+	   69 74 27 20 74
+	   6F 20 6C 65 61
+	   76 65 2E 00
+ 0000008B 20 20 54 79 70	shell_banner5   BYTE "  Type 'help' for language guide.",0
+	   65 20 27 68 65
+	   6C 70 27 20 66
+	   6F 72 20 6C 61
+	   6E 67 75 61 67
+	   65 20 67 75 69
+	   64 65 2E 00
+ 000000AD 20 20 54 79 70	shell_banner6   BYTE "  Type 'clear' to clear screen.",0
+	   65 20 27 63 6C
+	   65 61 72 27 20
+	   74 6F 20 63 6C
+	   65 61 72 20 73
+	   63 72 65 65 6E
+	   2E 00
+ 000000CD 20 20 54 79 70	shell_banner7   BYTE "  Type 'vars' to show variables.",0
+	   65 20 27 76 61
+	   72 73 27 20 74
+	   6F 20 73 68 6F
+	   77 20 76 61 72
+	   69 61 62 6C 65
+	   73 2E 00
+ 000000EE 20 20 3D 3D 3D	shell_banner8   BYTE "  ===================================",0
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 3D
+	   3D 3D 00
+				 
+ 00000114 4B 69 64 4C 61	shell_prompt    BYTE "KidLang> ",0
+	   6E 67 3E 20 00
+ 0000011E 44 65 62 75 67	str_debug_on_msg    BYTE "Debug mode ON. All messages will be shown.",0
+	   20 6D 6F 64 65
+	   20 4F 4E 2E 20
+	   41 6C 6C 20 6D
+	   65 73 73 61 67
+	   65 73 20 77 69
+	   6C 6C 20 62 65
+	   20 73 68 6F 77
+	   6E 2E 00
+ 00000149 44 65 62 75 67	str_debug_off_msg   BYTE "Debug mode OFF. Clean output mode.",0
+	   20 6D 6F 64 65
+	   20 4F 46 46 2E
+	   20 43 6C 65 61
+	   6E 20 6F 75 74
+	   70 75 74 20 6D
+	   6F 64 65 2E 00
+ 0000016C 20 20 28 65 6D	shell_empty     BYTE "  (empty - type something!)",0
+	   70 74 79 20 2D
+	   20 74 79 70 65
+	   20 73 6F 6D 65
+	   74 68 69 6E 67
+	   21 29 00
+ 00000188 5B 49 4E 46 4F	shell_bye       BYTE "[INFO] Leaving interactive shell. Goodbye!",0
+	   5D 20 4C 65 61
+	   76 69 6E 67 20
+	   69 6E 74 65 72
+	   61 63 74 69 76
+	   65 20 73 68 65
+	   6C 6C 2E 20 47
+	   6F 6F 64 62 79
+	   65 21 00
+ 000001B3 5B 49 4E 46 4F	shell_ready     BYTE "[INFO] Shell is ready. Type your code!",0
+	   5D 20 53 68 65
+	   6C 6C 20 69 73
+	   20 72 65 61 64
+	   79 2E 20 54 79
+	   70 65 20 79 6F
+	   75 72 20 63 6F
+	   64 65 21 00
+ 000001DA 5B 4F 4B 5D 20	shell_exec_ok   BYTE "[OK] Line executed.",0
+	   4C 69 6E 65 20
+	   65 78 65 63 75
+	   74 65 64 2E 00
+ 000001EE 20 20 28 75 73	shell_multi     BYTE "  (use 'run' to execute multi-line block)",0
+	   65 20 27 72 75
+	   6E 27 20 74 6F
+	   20 65 78 65 63
+	   75 74 65 20 6D
+	   75 6C 74 69 2D
+	   6C 69 6E 65 20
+	   62 6C 6F 63 6B
+	   29 00
+ 00000218 2D 2D 2D 2D 2D	shell_sep       BYTE "-----------------------------------------",0
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 2D 2D 2D 2D
+	   2D 00
+				 
+ 00000242 65 78 69 74 00	str_exit1       BYTE "exit",0
+ 00000247 71 75 69 74 00	str_exit2       BYTE "quit",0
+ 0000024C 62 79 65 00		str_exit3       BYTE "bye",0
+ 00000250 68 65 6C 70 00	str_cmd_help    BYTE "help",0
+ 00000255 63 6C 65 61 72	str_cmd_clear   BYTE "clear",0
+	   00
+ 0000025B 76 61 72 73 00	str_cmd_vars    BYTE "vars",0
+ 00000260 64 65 62 75 67	str_cmd_debug   BYTE "debug",0
+	   00
+ 00000266 6E 6F 64 65 62	str_cmd_nodebug BYTE "nodebug",0
+	   75 67 00
+ 0000026E 72 75 6E 00		str_cmd_run     BYTE "run",0
+				 
+				; Shell input buffer - single line
+ 00000272  00000200 [		shell_input     BYTE 512 DUP(0)
+	    00
+	   ]
+ 00000472 00000000		shell_inputLen  DWORD 0
+				 
+				; Multi-line input buffer (for block execution)
+				; Accumulates lines until 'run' is typed
+ 00000476  00001000 [		multi_buf       BYTE 4096 DUP(0)
+	    00
+	   ]
+ 00001476 00000000		multi_len       DWORD 0
+ 0000147A 00000000		multi_mode      DWORD 0     ; 1 = in multi-line mode
+				 
+				; Temp buffer for comparison
+ 0000147E  00000080 [		shell_tmp       BYTE 128 DUP(0)
+	    00
+	   ]
+				 
+				; Help text for interactive shell
+ 000014FE 0D 0A			shell_help BYTE 13,10
+ 00001500  20 20 3D 3D 3D	    BYTE "  ======== KIDLANG QUICK REFERENCE ========",13,10
+	   3D 3D 3D 3D 3D
+	   20 4B 49 44 4C
+	   41 4E 47 20 51
+	   55 49 43 4B 20
+	   52 45 46 45 52
+	   45 4E 43 45 20
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 0D 0A
+ 0000152D  0D 0A		    BYTE 13,10
+ 0000152F  20 20 56 41 52	    BYTE "  VARIABLES:",13,10
+	   49 41 42 4C 45
+	   53 3A 0D 0A
+ 0000153D  20 20 20 20 53	    BYTE "    SET name = value",13,10
+	   45 54 20 6E 61
+	   6D 65 20 3D 20
+	   76 61 6C 75 65
+	   0D 0A
+ 00001553  20 20 20 20 53	    BYTE "    SET name = ",34,"text",34,13,10
+	   45 54 20 6E 61
+	   6D 65 20 3D 20
+	   22 74 65 78 74
+	   22 0D 0A
+ 0000156A  20 20 20 20 4C	    BYTE "    LET x = 5 + 3",13,10
+	   45 54 20 78 20
+	   3D 20 35 20 2B
+	   20 33 0D 0A
+ 0000157D  20 20 20 20 43	    BYTE "    CONST PI = 3",13,10
+	   4F 4E 53 54 20
+	   50 49 20 3D 20
+	   33 0D 0A
+ 0000158F  0D 0A		    BYTE 13,10
+ 00001591  20 20 4F 55 54	    BYTE "  OUTPUT:",13,10
+	   50 55 54 3A 0D
+	   0A
+ 0000159C  20 20 20 20 53	    BYTE "    SHOW ",34,"Hello World",34,13,10
+	   48 4F 57 20 22
+	   48 65 6C 6C 6F
+	   20 57 6F 72 6C
+	   64 22 0D 0A
+ 000015B4  20 20 20 20 53	    BYTE "    SHOW variable",13,10
+	   48 4F 57 20 76
+	   61 72 69 61 62
+	   6C 65 0D 0A
+ 000015C7  20 20 20 20 53	    BYTE "    SHOW 5 * 4 + 1",13,10
+	   48 4F 57 20 35
+	   20 2A 20 34 20
+	   2B 20 31 0D 0A
+ 000015DB  0D 0A		    BYTE 13,10
+ 000015DD  20 20 49 4E 50	    BYTE "  INPUT:",13,10
+	   55 54 3A 0D 0A
+ 000015E7  20 20 20 20 41	    BYTE "    ASK name",13,10
+	   53 4B 20 6E 61
+	   6D 65 0D 0A
+ 000015F5  20 20 20 20 41	    BYTE "    ASK ",34,"Enter age: ",34," age",13,10
+	   53 4B 20 22 45
+	   6E 74 65 72 20
+	   61 67 65 3A 20
+	   22 20 61 67 65
+	   0D 0A
+ 00001610  0D 0A		    BYTE 13,10
+ 00001612  20 20 4D 41 54	    BYTE "  MATH:",13,10
+	   48 3A 0D 0A
+ 0000161B  20 20 20 20 2B	    BYTE "    +  -  *  /  %  (add,sub,mul,div,mod)",13,10
+	   20 20 2D 20 20
+	   2A 20 20 2F 20
+	   20 25 20 20 28
+	   61 64 64 2C 73
+	   75 62 2C 6D 75
+	   6C 2C 64 69 76
+	   2C 6D 6F 64 29
+	   0D 0A
+ 00001645  20 20 20 20 3D	    BYTE "    ==  !=  <  >  <=  >= (compare)",13,10
+	   3D 20 20 21 3D
+	   20 20 3C 20 20
+	   3E 20 20 3C 3D
+	   20 20 3E 3D 20
+	   28 63 6F 6D 70
+	   61 72 65 29 0D
+	   0A
+ 00001669  0D 0A		    BYTE 13,10
+ 0000166B  20 20 49 46 20	    BYTE "  IF STATEMENT:",13,10
+	   53 54 41 54 45
+	   4D 45 4E 54 3A
+	   0D 0A
+ 0000167C  20 20 20 20 49	    BYTE "    IF x > 5 THEN",13,10
+	   46 20 78 20 3E
+	   20 35 20 54 48
+	   45 4E 0D 0A
+ 0000168F  20 20 20 20 20	    BYTE "      SHOW ",34,"Big!",34,13,10
+	   20 53 48 4F 57
+	   20 22 42 69 67
+	   21 22 0D 0A
+ 000016A2  20 20 20 20 45	    BYTE "    ELSE",13,10
+	   4C 53 45 0D 0A
+ 000016AC  20 20 20 20 20	    BYTE "      SHOW ",34,"Small",34,13,10
+	   20 53 48 4F 57
+	   20 22 53 6D 61
+	   6C 6C 22 0D 0A
+ 000016C0  20 20 20 20 45	    BYTE "    END",13,10
+	   4E 44 0D 0A
+ 000016C9  0D 0A		    BYTE 13,10
+ 000016CB  20 20 57 48 49	    BYTE "  WHILE LOOP:",13,10
+	   4C 45 20 4C 4F
+	   4F 50 3A 0D 0A
+ 000016DA  20 20 20 20 57	    BYTE "    WHILE x < 10 DO",13,10
+	   48 49 4C 45 20
+	   78 20 3C 20 31
+	   30 20 44 4F 0D
+	   0A
+ 000016EF  20 20 20 20 20	    BYTE "      SHOW x",13,10
+	   20 53 48 4F 57
+	   20 78 0D 0A
+ 000016FD  20 20 20 20 20	    BYTE "      x = x + 1",13,10
+	   20 78 20 3D 20
+	   78 20 2B 20 31
+	   0D 0A
+ 0000170E  20 20 20 20 45	    BYTE "    ENDWHILE",13,10
+	   4E 44 57 48 49
+	   4C 45 0D 0A
+ 0000171C  0D 0A		    BYTE 13,10
+ 0000171E  20 20 46 4F 52	    BYTE "  FOR LOOP:",13,10
+	   20 4C 4F 4F 50
+	   3A 0D 0A
+ 0000172B  20 20 20 20 46	    BYTE "    FOR i = 1 TO 5 DO",13,10
+	   4F 52 20 69 20
+	   3D 20 31 20 54
+	   4F 20 35 20 44
+	   4F 0D 0A
+ 00001742  20 20 20 20 20	    BYTE "      SHOW i",13,10
+	   20 53 48 4F 57
+	   20 69 0D 0A
+ 00001750  20 20 20 20 45	    BYTE "    ENDFOR",13,10
+	   4E 44 46 4F 52
+	   0D 0A
+ 0000175C  0D 0A		    BYTE 13,10
+ 0000175E  20 20 46 55 4E	    BYTE "  FUNCTIONS:",13,10
+	   43 54 49 4F 4E
+	   53 3A 0D 0A
+ 0000176C  20 20 20 20 46	    BYTE "    FUNC greet()",13,10
+	   55 4E 43 20 67
+	   72 65 65 74 28
+	   29 0D 0A
+ 0000177E  20 20 20 20 20	    BYTE "      SHOW ",34,"Hello!",34,13,10
+	   20 53 48 4F 57
+	   20 22 48 65 6C
+	   6C 6F 21 22 0D
+	   0A
+ 00001793  20 20 20 20 45	    BYTE "    ENDFUNC",13,10
+	   4E 44 46 55 4E
+	   43 0D 0A
+ 000017A0  20 20 20 20 43	    BYTE "    CALL greet()",13,10
+	   41 4C 4C 20 67
+	   72 65 65 74 28
+	   29 0D 0A
+ 000017B2  0D 0A		    BYTE 13,10
+ 000017B4  20 20 44 45 42	    BYTE "  DEBUG:",13,10
+	   55 47 3A 0D 0A
+ 000017BE  20 20 20 20 53	    BYTE "    SHOW_VARIABLES",13,10
+	   48 4F 57 5F 56
+	   41 52 49 41 42
+	   4C 45 53 0D 0A
+ 000017D2  20 20 20 20 44	    BYTE "    DEBUG_ON  / DEBUG_OFF",13,10
+	   45 42 55 47 5F
+	   4F 4E 20 20 2F
+	   20 44 45 42 55
+	   47 5F 4F 46 46
+	   0D 0A
+ 000017ED  20 20 20 20 54	    BYTE "    TRACE_ON  / TRACE_OFF",13,10
+	   52 41 43 45 5F
+	   4F 4E 20 20 2F
+	   20 54 52 41 43
+	   45 5F 4F 46 46
+	   0D 0A
+ 00001808  20 20 20 20 50	    BYTE "    PAUSE",13,10
+	   41 55 53 45 0D
+	   0A
+ 00001813  20 20 3D 3D 3D	    BYTE "  ==========================================",13,10
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 3D
+	   3D 3D 3D 3D 0D
+	   0A
+ 00001841  00			    BYTE 0
+				 
+ 00000000			.code
+				 
+				; ============================================================
+				; RunInteractiveShell - Main REPL loop
+				; ============================================================
+				PUBLIC RunInteractiveShell
+ 00000000			RunInteractiveShell PROC
+ 00000000  53			    push    ebx
+ 00000001  51			    push    ecx
+ 00000002  52			    push    edx
+ 00000003  56			    push    esi
+ 00000004  57			    push    edi
+				 
+				    ; Show shell banner
+ 00000005  E8 00000085		    call    ShowShellBanner
+				 
+ 0000000A  BA 000001B3 R	    mov     edx, OFFSET shell_ready
+ 0000000F  E8 00000000 E	    call    PrintInfo
+				 
+ 00000014			_shellLoop:
+				    ; Print prompt
+ 00000014  B8 0000000B		    mov     eax, LIGHTCYAN_C + (BLACK_C * 16)
+ 00000019  E8 00000000 E	    call    SetTextColor
+ 0000001E  BA 00000114 R	    mov     edx, OFFSET shell_prompt
+ 00000023  E8 00000000 E	    call    WriteString
+ 00000028  B8 0000000F		    mov     eax, WHITE_C + (BLACK_C * 16)
+ 0000002D  E8 00000000 E	    call    SetTextColor
+				 
+				    ; Read input line
+ 00000032  BA 00000272 R	    mov     edx, OFFSET shell_input
+ 00000037  B9 000001FF		    mov     ecx, 511
+ 0000003C  E8 00000000 E	    call    ReadString
+ 00000041  A3 00000472 R	    mov     shell_inputLen, eax
+ 00000046  E8 00000000 E	    call    Crlf
+				 
+				    ; Skip if empty
+ 0000004B  83 F8 00		    cmp     eax, 0
+ 0000004E  74 C4		    je      _shellLoop
+				 
+				    ; Check for built-in shell commands
+ 00000050  E8 000000FD		    call    CheckShellCommand
+ 00000055  83 F8 01		    cmp     eax, 1
+ 00000058  74 BA		    je      _shellLoop      ; handled internally
+ 0000005A  83 F8 FF		    cmp     eax, -1
+ 0000005D  74 07		    je      _shellExit
+				 
+				    ; Execute the typed line as KidLang code
+ 0000005F  E8 0000027D		    call    ExecShellLine
+				 
+ 00000064  EB AE		    jmp     _shellLoop
+				 
+ 00000066			_shellExit:
+ 00000066  B8 0000000E		    mov     eax, YELLOW_C + (BLACK_C * 16)
+ 0000006B  E8 00000000 E	    call    SetTextColor
+ 00000070  BA 00000188 R	    mov     edx, OFFSET shell_bye
+ 00000075  E8 00000000 E	    call    WriteString
+ 0000007A  E8 00000000 E	    call    Crlf
+ 0000007F  B8 0000000F		    mov     eax, WHITE_C + (BLACK_C * 16)
+ 00000084  E8 00000000 E	    call    SetTextColor
+				 
+ 00000089  5F			    pop     edi
+ 0000008A  5E			    pop     esi
+ 0000008B  5A			    pop     edx
+ 0000008C  59			    pop     ecx
+ 0000008D  5B			    pop     ebx
+ 0000008E  C3			    ret
+ 0000008F			RunInteractiveShell ENDP
+				 
+				; ============================================================
+				; ShowShellBanner
+				; ============================================================
+ 0000008F			ShowShellBanner PROC
+ 0000008F  50			    push    eax
+ 00000090  52			    push    edx
+				 
+ 00000091  E8 00000000 E	    call    Crlf
+ 00000096  B8 0000000B		    mov     eax, LIGHTCYAN_C + (BLACK_C * 16)
+ 0000009B  E8 00000000 E	    call    SetTextColor
+				    
+ 000000A0  BA 00000000 R	    mov     edx, OFFSET shell_banner1
+ 000000A5  E8 00000000 E	    call    WriteString
+ 000000AA  E8 00000000 E	    call    Crlf
+				    
+ 000000AF  B8 0000000E		    mov     eax, YELLOW_C + (BLACK_C * 16)
+ 000000B4  E8 00000000 E	    call    SetTextColor
+ 000000B9  BA 00000026 R	    mov     edx, OFFSET shell_banner2
+ 000000BE  E8 00000000 E	    call    WriteString
+ 000000C3  E8 00000000 E	    call    Crlf
+				    
+ 000000C8  B8 0000000F		    mov     eax, WHITE_C + (BLACK_C * 16)
+ 000000CD  E8 00000000 E	    call    SetTextColor
+ 000000D2  BA 00000047 R	    mov     edx, OFFSET shell_banner3
+ 000000D7  E8 00000000 E	    call    WriteString
+ 000000DC  E8 00000000 E	    call    Crlf
+				    
+ 000000E1  B8 00000007		    mov     eax, LIGHTGRAY_C + (BLACK_C * 16)
+ 000000E6  E8 00000000 E	    call    SetTextColor
+ 000000EB  BA 00000069 R	    mov     edx, OFFSET shell_banner4
+ 000000F0  E8 00000000 E	    call    WriteString
+ 000000F5  E8 00000000 E	    call    Crlf
+ 000000FA  BA 0000008B R	    mov     edx, OFFSET shell_banner5
+ 000000FF  E8 00000000 E	    call    WriteString
+ 00000104  E8 00000000 E	    call    Crlf
+ 00000109  BA 000000AD R	    mov     edx, OFFSET shell_banner6
+ 0000010E  E8 00000000 E	    call    WriteString
+ 00000113  E8 00000000 E	    call    Crlf
+ 00000118  BA 000000CD R	    mov     edx, OFFSET shell_banner7
+ 0000011D  E8 00000000 E	    call    WriteString
+ 00000122  E8 00000000 E	    call    Crlf
+				    
+ 00000127  B8 0000000B		    mov     eax, LIGHTCYAN_C + (BLACK_C * 16)
+ 0000012C  E8 00000000 E	    call    SetTextColor
+ 00000131  BA 000000EE R	    mov     edx, OFFSET shell_banner8
+ 00000136  E8 00000000 E	    call    WriteString
+ 0000013B  E8 00000000 E	    call    Crlf
+ 00000140  E8 00000000 E	    call    Crlf
+				    
+ 00000145  B8 0000000F		    mov     eax, WHITE_C + (BLACK_C * 16)
+ 0000014A  E8 00000000 E	    call    SetTextColor
+				 
+ 0000014F  5A			    pop     edx
+ 00000150  58			    pop     eax
+ 00000151  C3			    ret
+ 00000152			ShowShellBanner ENDP
+				 
+				; ============================================================
+				; CheckShellCommand - Check if input is a shell command
+				; Returns: EAX = 1 if handled, -1 if exit, 0 if not a shell cmd
+				; ============================================================
+ 00000152			CheckShellCommand PROC
+ 00000152  53			    push    ebx
+ 00000153  51			    push    ecx
+ 00000154  56			    push    esi
+ 00000155  57			    push    edi
+				 
+				    ; Copy input to lowercase temp buffer
+ 00000156  BE 00000272 R	    mov     esi, OFFSET shell_input
+ 0000015B  BF 0000147E R	    mov     edi, OFFSET shell_tmp
+ 00000160  B9 0000007F		    mov     ecx, 127
+ 00000165			_cscCopy:
+ 00000165  83 F9 00		    cmp     ecx, 0
+ 00000168  74 19		    je      _cscCopyDone
+ 0000016A  8A 06		    mov     al, [esi]
+ 0000016C  88 07		    mov     [edi], al
+ 0000016E  3C 00		    cmp     al, 0
+ 00000170  74 11		    je      _cscCopyDone
+				    ; Lowercase
+ 00000172  3C 41		    cmp     al, 'A'
+ 00000174  7C 08		    jl      _cscLowerNext
+ 00000176  3C 5A		    cmp     al, 'Z'
+ 00000178  7F 04		    jg      _cscLowerNext
+ 0000017A  04 20		    add     al, 32
+ 0000017C  88 07		    mov     [edi], al
+ 0000017E			_cscLowerNext:
+ 0000017E  46			    inc     esi
+ 0000017F  47			    inc     edi
+ 00000180  49			    dec     ecx
+ 00000181  EB E2		    jmp     _cscCopy
+ 00000183			_cscCopyDone:
+ 00000183  C6 07 00		    mov     BYTE PTR [edi], 0
+				 
+				    ; Check: exit / quit / bye
+ 00000186  BE 0000147E R	    mov     esi, OFFSET shell_tmp
+ 0000018B  BF 00000242 R	    mov     edi, OFFSET str_exit1
+ 00000190  E8 000001BF		    call    ShellStrCmp
+ 00000195  83 F8 00		    cmp     eax, 0
+ 00000198  74 74		    je      _cscExit
+				 
+ 0000019A  BF 00000247 R	    mov     edi, OFFSET str_exit2
+ 0000019F  E8 000001B0		    call    ShellStrCmp
+ 000001A4  83 F8 00		    cmp     eax, 0
+ 000001A7  74 65		    je      _cscExit
+				 
+ 000001A9  BF 0000024C R	    mov     edi, OFFSET str_exit3
+ 000001AE  E8 000001A1		    call    ShellStrCmp
+ 000001B3  83 F8 00		    cmp     eax, 0
+ 000001B6  74 56		    je      _cscExit
+				 
+				    ; Check: help
+ 000001B8  BF 00000250 R	    mov     edi, OFFSET str_cmd_help
+ 000001BD  E8 00000192		    call    ShellStrCmp
+ 000001C2  83 F8 00		    cmp     eax, 0
+ 000001C5  74 51		    je      _cscHelp
+				 
+				    ; Check: clear
+ 000001C7  BF 00000255 R	    mov     edi, OFFSET str_cmd_clear
+ 000001CC  E8 00000183		    call    ShellStrCmp
+ 000001D1  83 F8 00		    cmp     eax, 0
+ 000001D4  74 6A		    je      _cscClear
+				 
+				    ; Check: vars
+ 000001D6  BF 0000025B R	    mov     edi, OFFSET str_cmd_vars
+ 000001DB  E8 00000174		    call    ShellStrCmp
+ 000001E0  83 F8 00		    cmp     eax, 0
+ 000001E3  74 6F		    je      _cscVars
+				 
+				    ; Check: debug
+ 000001E5  BF 00000260 R	    mov     edi, OFFSET str_cmd_debug
+ 000001EA  E8 00000165		    call    ShellStrCmp
+ 000001EF  83 F8 00		    cmp     eax, 0
+ 000001F2  74 6C		    je      _cscDebug
+				 
+				    ; Check: nodebug
+ 000001F4  BF 00000266 R	    mov     edi, OFFSET str_cmd_nodebug
+ 000001F9  E8 00000156		    call    ShellStrCmp
+ 000001FE  83 F8 00		    cmp     eax, 0
+ 00000201  0F 84 00000097	    je      _cscNoDebug
+				 
+				    ; Not a shell command
+ 00000207  33 C0		    xor     eax, eax
+ 00000209  E9 000000CE		    jmp     _cscDone
+				 
+ 0000020E			_cscExit:
+ 0000020E  B8 FFFFFFFF		    mov     eax, -1
+ 00000213  E9 000000C4		    jmp     _cscDone
+				 
+ 00000218			_cscHelp:
+ 00000218  B8 0000000B		    mov     eax, LIGHTCYAN_C + (BLACK_C * 16)
+ 0000021D  E8 00000000 E	    call    SetTextColor
+ 00000222  BA 000014FE R	    mov     edx, OFFSET shell_help
+ 00000227  E8 00000000 E	    call    WriteString
+ 0000022C  B8 0000000F		    mov     eax, WHITE_C + (BLACK_C * 16)
+ 00000231  E8 00000000 E	    call    SetTextColor
+ 00000236  B8 00000001		    mov     eax, 1
+ 0000023B  E9 0000009C		    jmp     _cscDone
+				 
+ 00000240			_cscClear:
+ 00000240  E8 00000000 E	    call    Clrscr
+ 00000245  E8 FFFFFE45		    call    ShowShellBanner
+ 0000024A  B8 00000001		    mov     eax, 1
+ 0000024F  E9 00000088		    jmp     _cscDone
+				 
+ 00000254			_cscVars:
+ 00000254  E8 00000000 E	    call    ShowSymbolTable
+ 00000259  B8 00000001		    mov     eax, 1
+ 0000025E  EB 7C		    jmp     _cscDone
+				 
+ 00000260			_cscDebug:
+ 00000260  C7 05 00000000 E	    mov     g_debugMode, 1
+	   00000001
+ 0000026A  C7 05 00000000 E	    mov     g_traceMode, 1
+	   00000001
+ 00000274  B8 0000000A		    mov     eax, LIGHTGREEN_C + (BLACK_C * 16)
+ 00000279  E8 00000000 E	    call    SetTextColor
+ 0000027E  BA 0000011E R	    mov     edx, OFFSET str_debug_on_msg
+ 00000283  E8 00000000 E	    call    WriteString
+ 00000288  E8 00000000 E	    call    Crlf
+ 0000028D  B8 0000000F		    mov     eax, WHITE_C + (BLACK_C * 16)
+ 00000292  E8 00000000 E	    call    SetTextColor
+ 00000297  B8 00000001		    mov     eax, 1
+ 0000029C  EB 3E		    jmp     _cscDone
+				 
+ 0000029E			_cscNoDebug:
+ 0000029E  C7 05 00000000 E	    mov     g_debugMode, 0
+	   00000000
+ 000002A8  C7 05 00000000 E	    mov     g_traceMode, 0
+	   00000000
+ 000002B2  B8 0000000A		    mov     eax, LIGHTGREEN_C + (BLACK_C * 16)
+ 000002B7  E8 00000000 E	    call    SetTextColor
+ 000002BC  BA 00000149 R	    mov     edx, OFFSET str_debug_off_msg
+ 000002C1  E8 00000000 E	    call    WriteString
+ 000002C6  E8 00000000 E	    call    Crlf
+ 000002CB  B8 0000000F		    mov     eax, WHITE_C + (BLACK_C * 16)
+ 000002D0  E8 00000000 E	    call    SetTextColor
+ 000002D5  B8 00000001		    mov     eax, 1
+ 000002DA  EB 00		    jmp     _cscDone
+				 
+ 000002DC			_cscDone:
+ 000002DC  5F			    pop     edi
+ 000002DD  5E			    pop     esi
+ 000002DE  59			    pop     ecx
+ 000002DF  5B			    pop     ebx
+ 000002E0  C3			    ret
+ 000002E1			CheckShellCommand ENDP
+				 
+				; ============================================================
+				; ExecShellLine - Execute a single typed line
+				; Copies input to sourceBuffer, runs lexer+parser+executor
+				; ============================================================
+ 000002E1			ExecShellLine PROC
+ 000002E1  50			    push    eax
+ 000002E2  53			    push    ebx
+ 000002E3  51			    push    ecx
+ 000002E4  56			    push    esi
+ 000002E5  57			    push    edi
+				 
+				    ; Copy shell_input to sourceBuffer
+				    ; Append a newline for proper lexing
+ 000002E6  BE 00000272 R	    mov     esi, OFFSET shell_input
+ 000002EB  BF 00000000 E	    mov     edi, OFFSET sourceBuffer
+ 000002F0  B9 0000FFFC		    mov     ecx, MAX_SOURCE_SIZE - 4
+				 
+ 000002F5			_eslCopy:
+ 000002F5  83 F9 00		    cmp     ecx, 0
+ 000002F8  74 0D		    je      _eslCopyDone
+ 000002FA  8A 06		    mov     al, [esi]
+ 000002FC  3C 00		    cmp     al, 0
+ 000002FE  74 07		    je      _eslCopyDone
+ 00000300  88 07		    mov     [edi], al
+ 00000302  46			    inc     esi
+ 00000303  47			    inc     edi
+ 00000304  49			    dec     ecx
+ 00000305  EB EE		    jmp     _eslCopy
+				 
+ 00000307			_eslCopyDone:
+				    ; Add newline + null terminator
+ 00000307  C6 07 0A		    mov     BYTE PTR [edi], 10  ; LF
+ 0000030A  47			    inc     edi
+ 0000030B  C6 07 00		    mov     BYTE PTR [edi], 0
+				 
+				    ; Set source size
+ 0000030E  8B C7		    mov     eax, edi
+ 00000310  2D 00000000 E	    sub     eax, OFFSET sourceBuffer
+ 00000315  A3 00000000 E	    mov     sourceSize, eax
+				 
+				    ; Reset token system
+ 0000031A  C7 05 00000000 E	    mov     tokenCount, 0
+	   00000000
+ 00000324  C7 05 00000000 E	    mov     tokenIndex, 0
+	   00000000
+				 
+				    ; Run lexer
+ 0000032E  E8 00000000 E	    call    RunLexer
+ 00000333  83 F8 00		    cmp     eax, 0
+ 00000336  75 16		    jne     _eslError
+				 
+				    ; Run parser
+ 00000338  E8 00000000 E	    call    RunParser
+ 0000033D  83 F8 00		    cmp     eax, 0
+ 00000340  75 0C		    jne     _eslError
+				 
+				    ; Run executor
+ 00000342  E8 00000000 E	    call    RunExecutor
+ 00000347  83 F8 00		    cmp     eax, 0
+ 0000034A  75 02		    jne     _eslError
+				 
+ 0000034C  EB 00		    jmp     _eslDone
+				 
+ 0000034E			_eslError:
+				    ; Error already printed by subsystem
+				 
+ 0000034E			_eslDone:
+ 0000034E  5F			    pop     edi
+ 0000034F  5E			    pop     esi
+ 00000350  59			    pop     ecx
+ 00000351  5B			    pop     ebx
+ 00000352  58			    pop     eax
+ 00000353  C3			    ret
+ 00000354			ExecShellLine ENDP
+				 
+				; ============================================================
+				; ShellStrCmp - Compare ESI string with EDI string
+				; Returns: EAX = 0 if equal
+				; ============================================================
+ 00000354			ShellStrCmp PROC
+ 00000354			_sscLoop:
+ 00000354  8A 06		    mov     al, [esi]
+ 00000356  8A 1F		    mov     bl, [edi]
+ 00000358  3A C3		    cmp     al, bl
+ 0000035A  75 0B		    jne     _sscNotEq
+ 0000035C  3C 00		    cmp     al, 0
+ 0000035E  74 04		    je      _sscEqual
+ 00000360  46			    inc     esi
+ 00000361  47			    inc     edi
+ 00000362  EB F0		    jmp     _sscLoop
+ 00000364			_sscEqual:
+ 00000364  33 C0		    xor     eax, eax
+ 00000366  C3			    ret
+ 00000367			_sscNotEq:
+ 00000367  B8 00000001		    mov     eax, 1
+ 0000036C  C3			    ret
+ 0000036D			ShellStrCmp ENDP
+				 
+				END
+Microsoft (R) Macro Assembler Version 14.50.35724.0	    06/08/26 21:02:56
+src\shell.asm						     Symbols 2 - 1
+
+
+
+
+Macros:
+
+                N a m e                 Type
+
+DBGPRINT . . . . . . . . . . . .	Proc
+TRACEPRINT . . . . . . . . . . .	Proc
+
+
+Structures and Unions:
+
+                N a m e                  Size
+                                         Offset      Type
+
+CONSOLE_CURSOR_INFO  . . . . . .	 00000008
+  dwSize . . . . . . . . . . . .	 00000000	 DWord
+  bVisible . . . . . . . . . . .	 00000004	 DWord
+CONSOLE_SCREEN_BUFFER_INFO . . .	 00000016
+  dwSize . . . . . . . . . . . .	 00000000	 DWord
+  dwCursorPosition . . . . . . .	 00000004	 DWord
+  wAttributes  . . . . . . . . .	 00000008	 Word
+  srWindow . . . . . . . . . . .	 0000000A	 QWord
+  dwMaximumWindowSize  . . . . .	 00000012	 DWord
+COORD  . . . . . . . . . . . . .	 00000004
+  X  . . . . . . . . . . . . . .	 00000000	 Word
+  Y  . . . . . . . . . . . . . .	 00000002	 Word
+FILETIME . . . . . . . . . . . .	 00000008
+  loDateTime . . . . . . . . . .	 00000000	 DWord
+  hiDateTime . . . . . . . . . .	 00000004	 DWord
+FOCUS_EVENT_RECORD . . . . . . .	 00000004
+  bSetFocus  . . . . . . . . . .	 00000000	 DWord
+FPU_ENVIRON  . . . . . . . . . .	 0000001C
+  controlWord  . . . . . . . . .	 00000000	 Word
+  statusWord . . . . . . . . . .	 00000004	 Word
+  tagWord  . . . . . . . . . . .	 00000008	 Word
+  instrPointerOffset . . . . . .	 0000000C	 DWord
+  instrPointerSelector . . . . .	 00000010	 DWord
+  operandPointerOffset . . . . .	 00000014	 DWord
+  operandPointerSelector . . . .	 00000018	 Word
+INPUT_RECORD . . . . . . . . . .	 00000014
+  EventType  . . . . . . . . . .	 00000000	 Word
+  Event  . . . . . . . . . . . .	 00000004	 XmmWord
+  bKeyDown . . . . . . . . . . .	 00000000	 DWord
+  wRepeatCount . . . . . . . . .	 00000004	 Word
+  wVirtualKeyCode  . . . . . . .	 00000006	 Word
+  wVirtualScanCode . . . . . . .	 00000008	 Word
+  uChar  . . . . . . . . . . . .	 0000000A	 Word
+  UnicodeChar  . . . . . . . . .	 00000000	 Word
+  AsciiChar  . . . . . . . . . .	 00000000	 Byte
+  dwControlKeyState  . . . . . .	 0000000C	 DWord
+  dwMousePosition  . . . . . . .	 00000000	 DWord
+  dwButtonState  . . . . . . . .	 00000004	 DWord
+  dwMouseControlKeyState . . . .	 00000008	 DWord
+  dwEventFlags . . . . . . . . .	 0000000C	 DWord
+  dwSize . . . . . . . . . . . .	 00000000	 DWord
+  dwCommandId  . . . . . . . . .	 00000000	 DWord
+  bSetFocus  . . . . . . . . . .	 00000000	 DWord
+KEY_EVENT_RECORD . . . . . . . .	 00000010
+  bKeyDown . . . . . . . . . . .	 00000000	 DWord
+  wRepeatCount . . . . . . . . .	 00000004	 Word
+  wVirtualKeyCode  . . . . . . .	 00000006	 Word
+  wVirtualScanCode . . . . . . .	 00000008	 Word
+  uChar  . . . . . . . . . . . .	 0000000A	 Word
+  UnicodeChar  . . . . . . . . .	 00000000	 Word
+  AsciiChar  . . . . . . . . . .	 00000000	 Byte
+  dwControlKeyState  . . . . . .	 0000000C	 DWord
+MENU_EVENT_RECORD  . . . . . . .	 00000004
+  dwCommandId  . . . . . . . . .	 00000000	 DWord
+MOUSE_EVENT_RECORD . . . . . . .	 00000010
+  dwMousePosition  . . . . . . .	 00000000	 DWord
+  dwButtonState  . . . . . . . .	 00000004	 DWord
+  dwMouseControlKeyState . . . .	 00000008	 DWord
+  dwEventFlags . . . . . . . . .	 0000000C	 DWord
+SMALL_RECT . . . . . . . . . . .	 00000008
+  Left . . . . . . . . . . . . .	 00000000	 Word
+  Top  . . . . . . . . . . . . .	 00000002	 Word
+  Right  . . . . . . . . . . . .	 00000004	 Word
+  Bottom . . . . . . . . . . . .	 00000006	 Word
+SYSTEMTIME . . . . . . . . . . .	 00000010
+  wYear  . . . . . . . . . . . .	 00000000	 Word
+  wMonth . . . . . . . . . . . .	 00000002	 Word
+  wDayOfWeek . . . . . . . . . .	 00000004	 Word
+  wDay . . . . . . . . . . . . .	 00000006	 Word
+  wHour  . . . . . . . . . . . .	 00000008	 Word
+  wMinute  . . . . . . . . . . .	 0000000A	 Word
+  wSecond  . . . . . . . . . . .	 0000000C	 Word
+  wMilliseconds  . . . . . . . .	 0000000E	 Word
+WINDOW_BUFFER_SIZE_RECORD  . . .	 00000004
+  dwSize . . . . . . . . . . . .	 00000000	 DWord
+
+
+Segments and Groups:
+
+                N a m e                 Size     Length   Align   Combine Class
+
+FLAT . . . . . . . . . . . . . .	GROUP
+STACK  . . . . . . . . . . . . .	32 Bit	 00001000 Para	  Stack	  'STACK'	 
+_DATA  . . . . . . . . . . . . .	32 Bit	 00001842 Para	  Public  'DATA'	
+_TEXT  . . . . . . . . . . . . .	32 Bit	 0000036D Para	  Public  'CODE'	
+
+
+Procedures, parameters, and locals:
+
+                N a m e                 Type     Value    Attr
+
+CheckShellCommand  . . . . . . .	P Near	 00000152 _TEXT	Length= 0000018F Public STDCALL
+  _cscCopy . . . . . . . . . . .	L Near	 00000165 _TEXT	
+  _cscLowerNext  . . . . . . . .	L Near	 0000017E _TEXT	
+  _cscCopyDone . . . . . . . . .	L Near	 00000183 _TEXT	
+  _cscExit . . . . . . . . . . .	L Near	 0000020E _TEXT	
+  _cscHelp . . . . . . . . . . .	L Near	 00000218 _TEXT	
+  _cscClear  . . . . . . . . . .	L Near	 00000240 _TEXT	
+  _cscVars . . . . . . . . . . .	L Near	 00000254 _TEXT	
+  _cscDebug  . . . . . . . . . .	L Near	 00000260 _TEXT	
+  _cscNoDebug  . . . . . . . . .	L Near	 0000029E _TEXT	
+  _cscDone . . . . . . . . . . .	L Near	 000002DC _TEXT	
+CloseFile  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+CloseHandle  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Clrscr . . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+CreateFileA  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+CreateOutputFile . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Crlf . . . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Delay  . . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+DumpMem  . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+DumpRegs . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ExecShellLine  . . . . . . . . .	P Near	 000002E1 _TEXT	Length= 00000073 Public STDCALL
+  _eslCopy . . . . . . . . . . .	L Near	 000002F5 _TEXT	
+  _eslCopyDone . . . . . . . . .	L Near	 00000307 _TEXT	
+  _eslError  . . . . . . . . . .	L Near	 0000034E _TEXT	
+  _eslDone . . . . . . . . . . .	L Near	 0000034E _TEXT	
+ExitProcess  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+FileTimeToDosDateTime  . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+FileTimeToSystemTime . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+FlushConsoleInputBuffer  . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+FormatMessageA . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetCommandLineA  . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetCommandTail . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetConsoleCP . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetConsoleCursorInfo . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetConsoleMode . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetConsoleScreenBufferInfo . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetDateTime  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetFileTime  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetKeyState  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetLastError . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetLocalTime . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetMaxXY . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetMseconds  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetNumberOfConsoleInputEvents  .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetProcessHeap . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetStdHandle . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetSystemTime  . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetTextColor . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+GetTickCount . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Gotoxy . . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+HeapAlloc  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+HeapCreate . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+HeapDestroy  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+HeapFree . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+HeapSize . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+InitRuntime  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+IsDigit  . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+LocalFree  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+MessageBoxA  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+MsgBoxAsk  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+MsgBox . . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+OpenInputFile  . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ParseDecimal32 . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ParseInteger32 . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+PeekConsoleInputA  . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+PrintDebug . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+PrintError . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+PrintInfo  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Random32 . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+RandomRange  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Randomize  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadChar . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadConsoleA . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadConsoleInputA  . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadDec  . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadFile . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadFloat  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadFromFile . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadHex  . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadInt  . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadKeyFlush . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadKey  . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ReadString . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+RunExecutor  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+RunInteractiveShell  . . . . . .	P Near	 00000000 _TEXT	Length= 0000008F Public STDCALL
+  _shellLoop . . . . . . . . . .	L Near	 00000014 _TEXT	
+  _shellExit . . . . . . . . . .	L Near	 00000066 _TEXT	
+RunLexer . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+RunParser  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetConsoleCursorInfo . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetConsoleCursorPosition . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetConsoleMode . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetConsoleScreenBufferSize . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetConsoleTextAttribute  . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetConsoleTitleA . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetConsoleWindowInfo . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetFilePointer . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetLocalTime . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SetTextColor . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ShellStrCmp  . . . . . . . . . .	P Near	 00000354 _TEXT	Length= 00000019 Public STDCALL
+  _sscLoop . . . . . . . . . . .	L Near	 00000354 _TEXT	
+  _sscEqual  . . . . . . . . . .	L Near	 00000364 _TEXT	
+  _sscNotEq  . . . . . . . . . .	L Near	 00000367 _TEXT	
+ShowFPUStack . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+ShowShellBanner  . . . . . . . .	P Near	 0000008F _TEXT	Length= 000000C3 Public STDCALL
+ShowSymbolTable  . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Sleep  . . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+StrLength  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Str_compare  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Str_copy . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Str_length . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Str_trim . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+Str_ucase  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+SystemTimeToFileTime . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WaitMsg  . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteBinB  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteBin . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteChar  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteConsoleA  . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteConsoleOutputAttribute  . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteConsoleOutputCharacterA . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteDec . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteFile  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteFloat . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteHexB  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteHex . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteInt . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteStackFrameName  . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteStackFrame  . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteString  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteToFile  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+WriteWindowsMsg  . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+printf . . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External C
+scanf  . . . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External C
+wsprintfA  . . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External C
+
+
+Symbols:
+
+                N a m e                 Type     Value    Attr
+
+@CodeSize  . . . . . . . . . . .	Number	 00000000h   
+@DataSize  . . . . . . . . . . .	Number	 00000000h   
+@Interface . . . . . . . . . . .	Number	 00000003h   
+@Model . . . . . . . . . . . . .	Number	 00000007h   
+@code  . . . . . . . . . . . . .	Text   	 _TEXT
+@data  . . . . . . . . . . . . .	Text   	 FLAT
+@fardata?  . . . . . . . . . . .	Text   	 FLAT
+@fardata . . . . . . . . . . . .	Text   	 FLAT
+@stack . . . . . . . . . . . . .	Text   	 FLAT
+ALT_MASK . . . . . . . . . . . .	Number	 00000003h   
+BLACK_C  . . . . . . . . . . . .	Number	 00000000h   
+BLUE_C . . . . . . . . . . . . .	Number	 00000001h   
+BROWN_C  . . . . . . . . . . . .	Number	 00000006h   
+CAPSLOCK_ON  . . . . . . . . . .	Number	 00000080h   
+CREATE_ALWAYS  . . . . . . . . .	Number	 00000002h   
+CREATE_NEW . . . . . . . . . . .	Number	 00000001h   
+CTRL_MASK  . . . . . . . . . . .	Number	 0000000Ch   
+CYAN_C . . . . . . . . . . . . .	Number	 00000003h   
+CreateFile . . . . . . . . . . .	Text   	 CreateFileA
+DARKGRAY_C . . . . . . . . . . .	Number	 00000008h   
+DO_NOT_SHARE . . . . . . . . . .	Number	 00000000h   
+ENABLE_ECHO_INPUT  . . . . . . .	Number	 00000004h   
+ENABLE_LINE_INPUT  . . . . . . .	Number	 00000002h   
+ENABLE_MOUSE_INPUT . . . . . . .	Number	 00000010h   
+ENABLE_PROCESSED_INPUT . . . . .	Number	 00000001h   
+ENABLE_PROCESSED_OUTPUT  . . . .	Number	 00000001h   
+ENABLE_WINDOW_INPUT  . . . . . .	Number	 00000008h   
+ENABLE_WRAP_AT_EOL_OUTPUT  . . .	Number	 00000002h   
+ENHANCED_KEY . . . . . . . . . .	Number	 00000100h   
+ERR_BREAK_OUTSIDE  . . . . . . .	Number	 0000000Fh   
+ERR_DIV_BY_ZERO  . . . . . . . .	Number	 00000005h   
+ERR_FILE_NOT_FOUND . . . . . . .	Number	 00000001h   
+ERR_FILE_READ  . . . . . . . . .	Number	 00000002h   
+ERR_FUNC_NOT_FOUND . . . . . . .	Number	 0000000Ah   
+ERR_INVALID_ARGS . . . . . . . .	Number	 0000000Bh   
+ERR_INVALID_OP . . . . . . . . .	Number	 00000008h   
+ERR_MISSING_END  . . . . . . . .	Number	 0000000Dh   
+ERR_NONE . . . . . . . . . . . .	Number	 00000000h   
+ERR_RETURN_OUTSIDE . . . . . . .	Number	 0000000Eh   
+ERR_STACK_OVERFLOW . . . . . . .	Number	 00000007h   
+ERR_SYNTAX . . . . . . . . . . .	Number	 00000003h   
+ERR_TOO_MANY_VARS  . . . . . . .	Number	 00000009h   
+ERR_TYPE_MISMATCH  . . . . . . .	Number	 00000006h   
+ERR_UNDEFINED_VAR  . . . . . . .	Number	 00000004h   
+ERR_UNEXPECTED_TOK . . . . . . .	Number	 0000000Ch   
+EXEC_BREAK . . . . . . . . . . .	Number	 00000001h   
+EXEC_CONTINUE  . . . . . . . . .	Number	 00000002h   
+EXEC_ERROR . . . . . . . . . . .	Number	 00000004h   
+EXEC_NORMAL  . . . . . . . . . .	Number	 00000000h   
+EXEC_RETURN  . . . . . . . . . .	Number	 00000003h   
+FALSE  . . . . . . . . . . . . .	Number	 00000000h   
+FILE_APPEND_DATA . . . . . . . .	Number	 00000004h   
+FILE_ATTRIBUTE_ARCHIVE . . . . .	Number	 00000020h   
+FILE_ATTRIBUTE_COMPRESSED  . . .	Number	 00000800h   
+FILE_ATTRIBUTE_DEVICE  . . . . .	Number	 00000040h   
+FILE_ATTRIBUTE_DIRECTORY . . . .	Number	 00000010h   
+FILE_ATTRIBUTE_ENCRYPTED . . . .	Number	 00004000h   
+FILE_ATTRIBUTE_HIDDEN  . . . . .	Number	 00000002h   
+FILE_ATTRIBUTE_NORMAL  . . . . .	Number	 00000080h   
+FILE_ATTRIBUTE_NOT_CONTENT_INDEXED .	Number	 00002000h   
+FILE_ATTRIBUTE_OFFLINE . . . . .	Number	 00001000h   
+FILE_ATTRIBUTE_READONLY  . . . .	Number	 00000001h   
+FILE_ATTRIBUTE_REPARSE_POINT . .	Number	 00000400h   
+FILE_ATTRIBUTE_SPARSE_FILE . . .	Number	 00000200h   
+FILE_ATTRIBUTE_SYSTEM  . . . . .	Number	 00000004h   
+FILE_ATTRIBUTE_TEMPORARY . . . .	Number	 00000100h   
+FILE_BEGIN . . . . . . . . . . .	Number	 00000000h   
+FILE_CURRENT . . . . . . . . . .	Number	 00000001h   
+FILE_DELETE_CHILD  . . . . . . .	Number	 00000040h   
+FILE_END . . . . . . . . . . . .	Number	 00000002h   
+FILE_READ_DATA . . . . . . . . .	Number	 00000001h   
+FILE_SHARE_DELETE  . . . . . . .	Number	 00000004h   
+FILE_SHARE_READ  . . . . . . . .	Number	 00000001h   
+FILE_SHARE_WRITE . . . . . . . .	Number	 00000002h   
+FILE_WRITE_DATA  . . . . . . . .	Number	 00000002h   
+FLAG_DEBUG . . . . . . . . . . .	Number	 00000008h   
+FLAG_IN_FUNC . . . . . . . . . .	Number	 00000002h   
+FLAG_IN_IF . . . . . . . . . . .	Number	 00000004h   
+FLAG_IN_LOOP . . . . . . . . . .	Number	 00000001h   
+FLAG_SKIP_BLOCK  . . . . . . . .	Number	 00000040h   
+FLAG_STEP  . . . . . . . . . . .	Number	 00000010h   
+FLAG_TRACE . . . . . . . . . . .	Number	 00000020h   
+FOCUS_EVENT  . . . . . . . . . .	Number	 00000010h   
+FORMAT_MESSAGE_ALLOCATE_BUFFER .	Number	 00000100h   
+FORMAT_MESSAGE_FROM_SYSTEM . . .	Number	 00001000h   
+FUNC_OFF_NAME  . . . . . . . . .	Number	 00000000h   
+FUNC_OFF_PAD . . . . . . . . . .	Number	 0000010Ch   
+FUNC_OFF_PARAMCOUNT  . . . . . .	Number	 00000088h   
+FUNC_OFF_PARAMS  . . . . . . . .	Number	 0000008Ch   
+FUNC_OFF_TOKEND  . . . . . . . .	Number	 00000084h   
+FUNC_OFF_TOKSTART  . . . . . . .	Number	 00000080h   
+FUNC_SIZE  . . . . . . . . . . .	Number	 00000190h   
+FormatMessage  . . . . . . . . .	Text   	 FormatMessageA
+GENERIC_ALL  . . . . . . . . . .	Number	 10000000h   
+GENERIC_EXECUTE  . . . . . . . .	Number	 20000000h   
+GENERIC_READ . . . . . . . . . .	Number	 -80000000h   
+GENERIC_WRITE  . . . . . . . . .	Number	 40000000h   
+GREEN_C  . . . . . . . . . . . .	Number	 00000002h   
+GetCommandLine . . . . . . . . .	Text   	 GetCommandLineA
+HANDLE . . . . . . . . . . . . .	Text   	 DWORD
+HEAP_GENERATE_EXCEPTIONS . . . .	Number	 00000004h   
+HEAP_GROWABLE  . . . . . . . . .	Number	 00000002h   
+HEAP_NO_SERIALIZE  . . . . . . .	Number	 00000001h   
+HEAP_REALLOC_IN_PLACE_ONLY . . .	Number	 00000010h   
+HEAP_ZERO_MEMORY . . . . . . . .	Number	 00000008h   
+IDABORT  . . . . . . . . . . . .	Number	 00000003h   
+IDCANCEL . . . . . . . . . . . .	Number	 00000002h   
+IDCLOSE  . . . . . . . . . . . .	Number	 00000008h   
+IDCONTINUE . . . . . . . . . . .	Number	 0000000Bh   
+IDHELP . . . . . . . . . . . . .	Number	 00000009h   
+IDIGNORE . . . . . . . . . . . .	Number	 00000005h   
+IDNO . . . . . . . . . . . . . .	Number	 00000007h   
+IDOK . . . . . . . . . . . . . .	Number	 00000001h   
+IDRETRY  . . . . . . . . . . . .	Number	 00000004h   
+IDTIMEOUT  . . . . . . . . . . .	Number	 00007D00h   
+IDTRYAGAIN . . . . . . . . . . .	Number	 0000000Ah   
+IDYES  . . . . . . . . . . . . .	Number	 00000006h   
+INVALID_HANDLE_VALUE . . . . . .	Number	 -00000001h   
+KBDOWN_FLAG  . . . . . . . . . .	Number	 00000001h   
+KEY_EVENT  . . . . . . . . . . .	Number	 00000001h   
+KEY_MASKS  . . . . . . . . . . .	Number	 0000001Fh   
+LEFT_ALT_PRESSED . . . . . . . .	Number	 00000002h   
+LEFT_CTRL_PRESSED  . . . . . . .	Number	 00000008h   
+LIGHTBLUE_C  . . . . . . . . . .	Number	 00000009h   
+LIGHTCYAN_C  . . . . . . . . . .	Number	 0000000Bh   
+LIGHTGRAY_C  . . . . . . . . . .	Number	 00000007h   
+LIGHTGREEN_C . . . . . . . . . .	Number	 0000000Ah   
+LIGHTMAGENTA_C . . . . . . . . .	Number	 0000000Dh   
+LIGHTRED_C . . . . . . . . . . .	Number	 0000000Ch   
+MAGENTA_C  . . . . . . . . . . .	Number	 00000005h   
+MAX_CALL_STACK . . . . . . . . .	Number	 00000020h   
+MAX_ERRORS . . . . . . . . . . .	Number	 00000040h   
+MAX_FILENAME . . . . . . . . . .	Number	 00000104h   
+MAX_FUNCTIONS  . . . . . . . . .	Number	 00000040h   
+MAX_LINES  . . . . . . . . . . .	Number	 00000800h   
+MAX_LINE_LEN . . . . . . . . . .	Number	 00000400h   
+MAX_SOURCE_SIZE  . . . . . . . .	Number	 00010000h   
+MAX_STRING_LEN . . . . . . . . .	Number	 00000200h   
+MAX_TOKENS . . . . . . . . . . .	Number	 00000800h   
+MAX_TOKEN_LEN  . . . . . . . . .	Number	 00000080h   
+MAX_VARIABLES  . . . . . . . . .	Number	 00000100h   
+MB_ABORTRETRYIGNORE  . . . . . .	Number	 00000002h   
+MB_APPLMODAL . . . . . . . . . .	Number	 00000000h   
+MB_CANCELTRYCONTINUE . . . . . .	Number	 00000006h   
+MB_DEFBUTTON1  . . . . . . . . .	Number	 00000000h   
+MB_DEFBUTTON2  . . . . . . . . .	Number	 00000100h   
+MB_DEFBUTTON3  . . . . . . . . .	Number	 00000200h   
+MB_DEFBUTTON4  . . . . . . . . .	Number	 00000300h   
+MB_HELP  . . . . . . . . . . . .	Number	 00004000h   
+MB_ICONASTERISK  . . . . . . . .	Number	 00000040h   
+MB_ICONERROR . . . . . . . . . .	Number	 00000010h   
+MB_ICONEXCLAMATION . . . . . . .	Number	 00000030h   
+MB_ICONHAND  . . . . . . . . . .	Number	 00000010h   
+MB_ICONINFORMATION . . . . . . .	Number	 00000040h   
+MB_ICONQUESTION  . . . . . . . .	Number	 00000020h   
+MB_ICONSTOP  . . . . . . . . . .	Number	 00000010h   
+MB_ICONWARNING . . . . . . . . .	Number	 00000030h   
+MB_OKCANCEL  . . . . . . . . . .	Number	 00000001h   
+MB_OK  . . . . . . . . . . . . .	Number	 00000000h   
+MB_RETRYCANCEL . . . . . . . . .	Number	 00000005h   
+MB_SYSTEMMODAL . . . . . . . . .	Number	 00001000h   
+MB_TASKMODAL . . . . . . . . . .	Number	 00002000h   
+MB_USERICON  . . . . . . . . . .	Number	 00000080h   
+MB_YESNOCANCEL . . . . . . . . .	Number	 00000003h   
+MB_YESNO . . . . . . . . . . . .	Number	 00000004h   
+MENU_DEBUG_FILE  . . . . . . . .	Number	 00000002h   
+MENU_EVENT . . . . . . . . . . .	Number	 00000008h   
+MENU_EXIT  . . . . . . . . . . .	Number	 00000006h   
+MENU_HELP  . . . . . . . . . . .	Number	 00000005h   
+MENU_INTERACTIVE . . . . . . . .	Number	 00000004h   
+MENU_RUN_FILE  . . . . . . . . .	Number	 00000001h   
+MENU_STEP_FILE . . . . . . . . .	Number	 00000003h   
+MOUSE_EVENT  . . . . . . . . . .	Number	 00000002h   
+MessageBox . . . . . . . . . . .	Text   	 MessageBoxA
+NULL . . . . . . . . . . . . . .	Number	 00000000h   
+NUMLOCK_ON . . . . . . . . . . .	Number	 00000020h   
+OPEN_ALWAYS  . . . . . . . . . .	Number	 00000004h   
+OPEN_EXISTING  . . . . . . . . .	Number	 00000003h   
+PREFIX_DEBUG . . . . . . . . . .	Number	 00000002h   
+PREFIX_ERROR . . . . . . . . . .	Number	 00000003h   
+PREFIX_INFO  . . . . . . . . . .	Number	 00000001h   
+PREFIX_TRACE . . . . . . . . . .	Number	 00000004h   
+PREFIX_WARN  . . . . . . . . . .	Number	 00000005h   
+PeekConsoleInput . . . . . . . .	Text   	 PeekConsoleInputA
+RED_C  . . . . . . . . . . . . .	Number	 00000004h   
+RIGHT_ALT_PRESSED  . . . . . . .	Number	 00000001h   
+RIGHT_CTRL_PRESSED . . . . . . .	Number	 00000004h   
+ReadConsoleInput . . . . . . . .	Text   	 ReadConsoleInputA
+ReadConsole  . . . . . . . . . .	Text   	 ReadConsoleA
+SCROLLLOCK_ON  . . . . . . . . .	Number	 00000040h   
+SHIFT_MASK . . . . . . . . . . .	Number	 00000010h   
+SHIFT_PRESSED  . . . . . . . . .	Number	 00000010h   
+STD_ERROR_HANDLE . . . . . . . .	Number	 -0000000Ch   
+STD_INPUT_HANDLE . . . . . . . .	Number	 -0000000Ah   
+STD_OUTPUT_HANDLE  . . . . . . .	Number	 -0000000Bh   
+SetConsoleTitle  . . . . . . . .	Text   	 SetConsoleTitleA
+TAB  . . . . . . . . . . . . . .	Number	 00000009h   
+TOKEN_OFF_COL  . . . . . . . . .	Number	 00000088h   
+TOKEN_OFF_FVAL . . . . . . . . .	Number	 00000090h   
+TOKEN_OFF_IVAL . . . . . . . . .	Number	 0000008Ch   
+TOKEN_OFF_LINE . . . . . . . . .	Number	 00000084h   
+TOKEN_OFF_PAD  . . . . . . . . .	Number	 00000094h   
+TOKEN_OFF_TYPE . . . . . . . . .	Number	 00000000h   
+TOKEN_OFF_VALUE  . . . . . . . .	Number	 00000004h   
+TOKEN_SIZE . . . . . . . . . . .	Number	 000000C8h   
+TOK_AND  . . . . . . . . . . . .	Number	 00000082h   
+TOK_ASK  . . . . . . . . . . . .	Number	 00000020h   
+TOK_ASSIGN . . . . . . . . . . .	Number	 0000008Ch   
+TOK_BOOL_FALSE . . . . . . . . .	Number	 0000000Fh   
+TOK_BOOL_TRUE  . . . . . . . . .	Number	 0000000Eh   
+TOK_BOOL_TYPE  . . . . . . . . .	Number	 00000068h   
+TOK_BREAK  . . . . . . . . . . .	Number	 00000041h   
+TOK_CALL . . . . . . . . . . . .	Number	 00000049h   
+TOK_CASE . . . . . . . . . . . .	Number	 00000051h   
+TOK_CHAR_TYPE  . . . . . . . . .	Number	 00000067h   
+TOK_CHAR . . . . . . . . . . . .	Number	 0000000Dh   
+TOK_CLEAR  . . . . . . . . . . .	Number	 00000060h   
+TOK_COLON  . . . . . . . . . . .	Number	 000000A5h   
+TOK_COMMA  . . . . . . . . . . .	Number	 000000A4h   
+TOK_CONST  . . . . . . . . . . .	Number	 0000002Ah   
+TOK_CONTINUE . . . . . . . . . .	Number	 00000042h   
+TOK_DEBUG_OFF  . . . . . . . . .	Number	 0000005Ch   
+TOK_DEBUG_ON . . . . . . . . . .	Number	 0000005Bh   
+TOK_DECREMENT  . . . . . . . . .	Number	 00000097h   
+TOK_DEFAULT  . . . . . . . . . .	Number	 00000052h   
+TOK_DIVIDE . . . . . . . . . . .	Number	 00000071h   
+TOK_DIV_ASSIGN . . . . . . . . .	Number	 00000090h   
+TOK_DOT  . . . . . . . . . . . .	Number	 000000A7h   
+TOK_DO . . . . . . . . . . . . .	Number	 0000003Dh   
+TOK_ELIF . . . . . . . . . . . .	Number	 00000035h   
+TOK_ELSE . . . . . . . . . . . .	Number	 00000034h   
+TOK_ENDFOR . . . . . . . . . . .	Number	 00000044h   
+TOK_ENDFUNC  . . . . . . . . . .	Number	 00000047h   
+TOK_ENDIF  . . . . . . . . . . .	Number	 00000037h   
+TOK_ENDSWITCH  . . . . . . . . .	Number	 00000053h   
+TOK_ENDWHILE . . . . . . . . . .	Number	 00000043h   
+TOK_END  . . . . . . . . . . . .	Number	 00000036h   
+TOK_EOF  . . . . . . . . . . . .	Number	 00000000h   
+TOK_EQ . . . . . . . . . . . . .	Number	 00000078h   
+TOK_ERROR  . . . . . . . . . . .	Number	 00000002h   
+TOK_FLOAT_TYPE . . . . . . . . .	Number	 00000065h   
+TOK_FLOAT  . . . . . . . . . . .	Number	 0000000Bh   
+TOK_FOR  . . . . . . . . . . . .	Number	 0000003Eh   
+TOK_FUNC . . . . . . . . . . . .	Number	 00000046h   
+TOK_GTE  . . . . . . . . . . . .	Number	 0000007Dh   
+TOK_GT . . . . . . . . . . . . .	Number	 0000007Bh   
+TOK_HASH . . . . . . . . . . . .	Number	 000000A9h   
+TOK_IDENT  . . . . . . . . . . .	Number	 00000014h   
+TOK_IF . . . . . . . . . . . . .	Number	 00000032h   
+TOK_INCREMENT  . . . . . . . . .	Number	 00000096h   
+TOK_INPUT  . . . . . . . . . . .	Number	 00000021h   
+TOK_INTEGER_TYPE . . . . . . . .	Number	 00000064h   
+TOK_INTEGER  . . . . . . . . . .	Number	 0000000Ah   
+TOK_LBRACKET . . . . . . . . . .	Number	 000000A2h   
+TOK_LET  . . . . . . . . . . . .	Number	 00000029h   
+TOK_LPAREN . . . . . . . . . . .	Number	 000000A0h   
+TOK_LTE  . . . . . . . . . . . .	Number	 0000007Ch   
+TOK_LT . . . . . . . . . . . . .	Number	 0000007Ah   
+TOK_MINUS_ASSIGN . . . . . . . .	Number	 0000008Eh   
+TOK_MINUS  . . . . . . . . . . .	Number	 0000006Fh   
+TOK_MODULO . . . . . . . . . . .	Number	 00000072h   
+TOK_MULTIPLY . . . . . . . . . .	Number	 00000070h   
+TOK_MUL_ASSIGN . . . . . . . . .	Number	 0000008Fh   
+TOK_NEQ  . . . . . . . . . . . .	Number	 00000079h   
+TOK_NEWLINE  . . . . . . . . . .	Number	 00000001h   
+TOK_NOT  . . . . . . . . . . . .	Number	 00000084h   
+TOK_OR . . . . . . . . . . . . .	Number	 00000083h   
+TOK_PAUSE  . . . . . . . . . . .	Number	 0000005Fh   
+TOK_PLUS_ASSIGN  . . . . . . . .	Number	 0000008Dh   
+TOK_PLUS . . . . . . . . . . . .	Number	 0000006Eh   
+TOK_POWER  . . . . . . . . . . .	Number	 00000073h   
+TOK_PRINT  . . . . . . . . . . .	Number	 0000001Fh   
+TOK_QUOTE  . . . . . . . . . . .	Number	 000000A8h   
+TOK_RBRACKET . . . . . . . . . .	Number	 000000A3h   
+TOK_RETURN . . . . . . . . . . .	Number	 00000048h   
+TOK_RPAREN . . . . . . . . . . .	Number	 000000A1h   
+TOK_SEMICOLON  . . . . . . . . .	Number	 000000A6h   
+TOK_SET  . . . . . . . . . . . .	Number	 00000028h   
+TOK_SHOWL  . . . . . . . . . . .	Number	 00000022h   
+TOK_SHOW_VARS  . . . . . . . . .	Number	 0000005Ah   
+TOK_SHOW . . . . . . . . . . . .	Number	 0000001Eh   
+TOK_STEP . . . . . . . . . . . .	Number	 00000040h   
+TOK_STRING_TYPE  . . . . . . . .	Number	 00000066h   
+TOK_STRING . . . . . . . . . . .	Number	 0000000Ch   
+TOK_SWITCH . . . . . . . . . . .	Number	 00000050h   
+TOK_THEN . . . . . . . . . . . .	Number	 00000033h   
+TOK_TO . . . . . . . . . . . . .	Number	 0000003Fh   
+TOK_TRACE_OFF  . . . . . . . . .	Number	 0000005Eh   
+TOK_TRACE_ON . . . . . . . . . .	Number	 0000005Dh   
+TOK_VAR  . . . . . . . . . . . .	Number	 0000002Bh   
+TOK_WAIT . . . . . . . . . . . .	Number	 00000061h   
+TOK_WHILE  . . . . . . . . . . .	Number	 0000003Ch   
+TRUE . . . . . . . . . . . . . .	Number	 00000001h   
+TRUNCATE_EXISTING  . . . . . . .	Number	 00000005h   
+VAR_OFF_BVAL . . . . . . . . . .	Number	 0000018Dh   
+VAR_OFF_CVAL . . . . . . . . . .	Number	 0000018Ch   
+VAR_OFF_FVAL . . . . . . . . . .	Number	 00000088h   
+VAR_OFF_ISCONST  . . . . . . . .	Number	 0000018Eh   
+VAR_OFF_IVAL . . . . . . . . . .	Number	 00000084h   
+VAR_OFF_NAME . . . . . . . . . .	Number	 00000000h   
+VAR_OFF_PAD  . . . . . . . . . .	Number	 0000018Fh   
+VAR_OFF_SVAL . . . . . . . . . .	Number	 0000008Ch   
+VAR_OFF_TYPE . . . . . . . . . .	Number	 00000080h   
+VAR_SIZE . . . . . . . . . . . .	Number	 00000258h   
+VK_11  . . . . . . . . . . . . .	Number	 000000BDh   
+VK_12  . . . . . . . . . . . . .	Number	 000000BBh   
+VK_ADD . . . . . . . . . . . . .	Number	 0000006Bh   
+VK_BACK  . . . . . . . . . . . .	Number	 00000008h   
+VK_CANCEL  . . . . . . . . . . .	Number	 00000003h   
+VK_CAPITAL . . . . . . . . . . .	Number	 00000014h   
+VK_CLEAR . . . . . . . . . . . .	Number	 0000000Ch   
+VK_CONTROL . . . . . . . . . . .	Number	 00000011h   
+VK_DECIMAL . . . . . . . . . . .	Number	 0000006Eh   
+VK_DELETE  . . . . . . . . . . .	Number	 0000002Eh   
+VK_DIVIDE  . . . . . . . . . . .	Number	 0000006Fh   
+VK_DOWN  . . . . . . . . . . . .	Number	 00000028h   
+VK_END . . . . . . . . . . . . .	Number	 00000023h   
+VK_ESCAPE  . . . . . . . . . . .	Number	 0000001Bh   
+VK_EXECUTE . . . . . . . . . . .	Number	 0000002Bh   
+VK_F10 . . . . . . . . . . . . .	Number	 00000079h   
+VK_F11 . . . . . . . . . . . . .	Number	 0000007Ah   
+VK_F12 . . . . . . . . . . . . .	Number	 0000007Bh   
+VK_F13 . . . . . . . . . . . . .	Number	 0000007Ch   
+VK_F14 . . . . . . . . . . . . .	Number	 0000007Dh   
+VK_F15 . . . . . . . . . . . . .	Number	 0000007Eh   
+VK_F16 . . . . . . . . . . . . .	Number	 0000007Fh   
+VK_F17 . . . . . . . . . . . . .	Number	 00000080h   
+VK_F18 . . . . . . . . . . . . .	Number	 00000081h   
+VK_F19 . . . . . . . . . . . . .	Number	 00000082h   
+VK_F1  . . . . . . . . . . . . .	Number	 00000070h   
+VK_F20 . . . . . . . . . . . . .	Number	 00000083h   
+VK_F21 . . . . . . . . . . . . .	Number	 00000084h   
+VK_F22 . . . . . . . . . . . . .	Number	 00000085h   
+VK_F23 . . . . . . . . . . . . .	Number	 00000086h   
+VK_F24 . . . . . . . . . . . . .	Number	 00000087h   
+VK_F2  . . . . . . . . . . . . .	Number	 00000071h   
+VK_F3  . . . . . . . . . . . . .	Number	 00000072h   
+VK_F4  . . . . . . . . . . . . .	Number	 00000073h   
+VK_F5  . . . . . . . . . . . . .	Number	 00000074h   
+VK_F6  . . . . . . . . . . . . .	Number	 00000075h   
+VK_F7  . . . . . . . . . . . . .	Number	 00000076h   
+VK_F8  . . . . . . . . . . . . .	Number	 00000077h   
+VK_F9  . . . . . . . . . . . . .	Number	 00000078h   
+VK_HELP  . . . . . . . . . . . .	Number	 0000002Fh   
+VK_HOME  . . . . . . . . . . . .	Number	 00000024h   
+VK_INSERT  . . . . . . . . . . .	Number	 0000002Dh   
+VK_LBUTTON . . . . . . . . . . .	Number	 00000001h   
+VK_LCONTROL  . . . . . . . . . .	Number	 000000A2h   
+VK_LEFT  . . . . . . . . . . . .	Number	 00000025h   
+VK_LMENU . . . . . . . . . . . .	Number	 000000A4h   
+VK_LSHIFT  . . . . . . . . . . .	Number	 000000A0h   
+VK_MENU  . . . . . . . . . . . .	Number	 00000012h   
+VK_MULTIPLY  . . . . . . . . . .	Number	 0000006Ah   
+VK_NEXT  . . . . . . . . . . . .	Number	 00000022h   
+VK_NUMLOCK . . . . . . . . . . .	Number	 00000090h   
+VK_NUMPAD0 . . . . . . . . . . .	Number	 00000060h   
+VK_NUMPAD1 . . . . . . . . . . .	Number	 00000061h   
+VK_NUMPAD2 . . . . . . . . . . .	Number	 00000062h   
+VK_NUMPAD3 . . . . . . . . . . .	Number	 00000063h   
+VK_NUMPAD4 . . . . . . . . . . .	Number	 00000064h   
+VK_NUMPAD5 . . . . . . . . . . .	Number	 00000065h   
+VK_NUMPAD6 . . . . . . . . . . .	Number	 00000066h   
+VK_NUMPAD7 . . . . . . . . . . .	Number	 00000067h   
+VK_NUMPAD8 . . . . . . . . . . .	Number	 00000068h   
+VK_NUMPAD9 . . . . . . . . . . .	Number	 00000069h   
+VK_PAUSE . . . . . . . . . . . .	Number	 00000013h   
+VK_PRINT . . . . . . . . . . . .	Number	 0000002Ah   
+VK_PRIOR . . . . . . . . . . . .	Number	 00000021h   
+VK_RBUTTON . . . . . . . . . . .	Number	 00000002h   
+VK_RCONTROL  . . . . . . . . . .	Number	 000000A3h   
+VK_RETURN  . . . . . . . . . . .	Number	 0000000Dh   
+VK_RIGHT . . . . . . . . . . . .	Number	 00000027h   
+VK_RMENU . . . . . . . . . . . .	Number	 000000A5h   
+VK_RSHIFT  . . . . . . . . . . .	Number	 000000A1h   
+VK_SCROLL  . . . . . . . . . . .	Number	 00000091h   
+VK_SEPARATER . . . . . . . . . .	Number	 0000006Ch   
+VK_SHIFT . . . . . . . . . . . .	Number	 00000010h   
+VK_SNAPSHOT  . . . . . . . . . .	Number	 0000002Ch   
+VK_SPACE . . . . . . . . . . . .	Number	 00000020h   
+VK_SUBTRACT  . . . . . . . . . .	Number	 0000006Dh   
+VK_TAB . . . . . . . . . . . . .	Number	 00000009h   
+VK_UP  . . . . . . . . . . . . .	Number	 00000026h   
+VTYPE_BOOL . . . . . . . . . . .	Number	 00000005h   
+VTYPE_CHAR . . . . . . . . . . .	Number	 00000004h   
+VTYPE_FLOAT  . . . . . . . . . .	Number	 00000002h   
+VTYPE_INTEGER  . . . . . . . . .	Number	 00000001h   
+VTYPE_STRING . . . . . . . . . .	Number	 00000003h   
+VTYPE_UNDEFINED  . . . . . . . .	Number	 00000000h   
+WHITE_C  . . . . . . . . . . . .	Number	 0000000Fh   
+WINDOW_BUFFER_SIZE_EVENT . . . .	Number	 00000004h   
+WriteConsoleOutputCharacter  . .	Text   	 WriteConsoleOutputCharacterA
+WriteConsole . . . . . . . . . .	Text   	 WriteConsoleA
+YELLOW_C . . . . . . . . . . . .	Number	 0000000Eh   
+_DEBUG . . . . . . . . . . . . .	Text   	 
+black  . . . . . . . . . . . . .	Number	 00000000h   
+blue . . . . . . . . . . . . . .	Number	 00000001h   
+brown  . . . . . . . . . . . . .	Number	 00000006h   
+cyan . . . . . . . . . . . . . .	Number	 00000003h   
+exit . . . . . . . . . . . . . .	Text   	 INVOKE ExitProcess,0
+g_debugMode  . . . . . . . . . .	DWord	 00000000 FLAT	External STDCALL
+g_stepMode . . . . . . . . . . .	DWord	 00000000 FLAT	External STDCALL
+g_traceMode  . . . . . . . . . .	DWord	 00000000 FLAT	External STDCALL
+gray . . . . . . . . . . . . . .	Number	 00000008h   
+green  . . . . . . . . . . . . .	Number	 00000002h   
+lightBlue  . . . . . . . . . . .	Number	 00000009h   
+lightCyan  . . . . . . . . . . .	Number	 0000000Bh   
+lightGray  . . . . . . . . . . .	Number	 00000007h   
+lightGreen . . . . . . . . . . .	Number	 0000000Ah   
+lightMagenta . . . . . . . . . .	Number	 0000000Dh   
+lightRed . . . . . . . . . . . .	Number	 0000000Ch   
+magenta  . . . . . . . . . . . .	Number	 00000005h   
+multi_buf  . . . . . . . . . . .	Byte	 00000476 _DATA	
+multi_len  . . . . . . . . . . .	DWord	 00001476 _DATA	
+multi_mode . . . . . . . . . . .	DWord	 0000147A _DATA	
+red  . . . . . . . . . . . . . .	Number	 00000004h   
+shell_banner1  . . . . . . . . .	Byte	 00000000 _DATA	
+shell_banner2  . . . . . . . . .	Byte	 00000026 _DATA	
+shell_banner3  . . . . . . . . .	Byte	 00000047 _DATA	
+shell_banner4  . . . . . . . . .	Byte	 00000069 _DATA	
+shell_banner5  . . . . . . . . .	Byte	 0000008B _DATA	
+shell_banner6  . . . . . . . . .	Byte	 000000AD _DATA	
+shell_banner7  . . . . . . . . .	Byte	 000000CD _DATA	
+shell_banner8  . . . . . . . . .	Byte	 000000EE _DATA	
+shell_bye  . . . . . . . . . . .	Byte	 00000188 _DATA	
+shell_empty  . . . . . . . . . .	Byte	 0000016C _DATA	
+shell_exec_ok  . . . . . . . . .	Byte	 000001DA _DATA	
+shell_help . . . . . . . . . . .	Byte	 000014FE _DATA	
+shell_inputLen . . . . . . . . .	DWord	 00000472 _DATA	
+shell_input  . . . . . . . . . .	Byte	 00000272 _DATA	
+shell_multi  . . . . . . . . . .	Byte	 000001EE _DATA	
+shell_prompt . . . . . . . . . .	Byte	 00000114 _DATA	
+shell_ready  . . . . . . . . . .	Byte	 000001B3 _DATA	
+shell_sep  . . . . . . . . . . .	Byte	 00000218 _DATA	
+shell_tmp  . . . . . . . . . . .	Byte	 0000147E _DATA	
+sourceBuffer . . . . . . . . . .	Byte	 00000000 FLAT	External STDCALL
+sourceSize . . . . . . . . . . .	DWord	 00000000 FLAT	External STDCALL
+str_cmd_clear  . . . . . . . . .	Byte	 00000255 _DATA	
+str_cmd_debug  . . . . . . . . .	Byte	 00000260 _DATA	
+str_cmd_help . . . . . . . . . .	Byte	 00000250 _DATA	
+str_cmd_nodebug  . . . . . . . .	Byte	 00000266 _DATA	
+str_cmd_run  . . . . . . . . . .	Byte	 0000026E _DATA	
+str_cmd_vars . . . . . . . . . .	Byte	 0000025B _DATA	
+str_debug_off_msg  . . . . . . .	Byte	 00000149 _DATA	
+str_debug_on_msg . . . . . . . .	Byte	 0000011E _DATA	
+str_exit1  . . . . . . . . . . .	Byte	 00000242 _DATA	
+str_exit2  . . . . . . . . . . .	Byte	 00000247 _DATA	
+str_exit3  . . . . . . . . . . .	Byte	 0000024C _DATA	
+tokenArray . . . . . . . . . . .	Byte	 00000000 FLAT	External STDCALL
+tokenCount . . . . . . . . . . .	DWord	 00000000 FLAT	External STDCALL
+tokenIndex . . . . . . . . . . .	DWord	 00000000 FLAT	External STDCALL
+varCount . . . . . . . . . . . .	DWord	 00000000 FLAT	External STDCALL
+white  . . . . . . . . . . . . .	Number	 0000000Fh   
+wsprintf . . . . . . . . . . . .	Text   	 wsprintfA
+yellow . . . . . . . . . . . . .	Number	 0000000Eh   
+
+	   0 Warnings
+	   0 Errors

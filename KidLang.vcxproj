@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>16.0</VCProjectVersion>
+    <ProjectGuid>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</ProjectGuid>
+    <Keyword>MASMProj</Keyword>
+    <RootNamespace>KidLang</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
+  </ImportGroup>
+  <ImportGroup Label="Sheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="Sheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <!-- ======================================================
+       OUTPUT / INTERMEDIATE PATHS
+       ====================================================== -->
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <LinkIncremental>true</LinkIncremental>
+    <OutDir>$(SolutionDir)build\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)build\$(Configuration)\obj\</IntDir>
+    <TargetName>KidLang</TargetName>
+    <TargetExt>.exe</TargetExt>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <LinkIncremental>false</LinkIncremental>
+    <OutDir>$(SolutionDir)build\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)build\$(Configuration)\obj\</IntDir>
+    <TargetName>KidLang</TargetName>
+    <TargetExt>.exe</TargetExt>
+  </PropertyGroup>
+  <!-- ======================================================
+       MASM ASSEMBLER SETTINGS
+       ====================================================== -->
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <MASM>
+      <!-- Include paths: Irvine32 and our own include folder -->
+      <IncludePaths>$(IRVINE);$(ProjectDir)include;%(IncludePaths)</IncludePaths>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ListingFile>$(IntDir)%(Filename).lst</ListingFile>
+      <AssembledCodeListingFile>true</AssembledCodeListingFile>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </MASM>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>
+        Irvine32.lib;Kernel32.lib;User32.lib;</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(IRVINE);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <EntryPointSymbol>main@0</EntryPointSymbol>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <MASM>
+      <IncludePaths>$(IRVINE);$(ProjectDir)include;%(IncludePaths)</IncludePaths>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+    </MASM>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <AdditionalDependencies>
+        Irvine32.lib;Kernel32.lib;User32.lib;</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(IRVINE);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <EntryPointSymbol>main@0</EntryPointSymbol>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <!-- ======================================================
+       SOURCE FILES
+       ====================================================== -->
+  <ItemGroup>
+    <MASM Include="src\main.asm">
+      <FileType>MASM</FileType>
+    </MASM>
+    <MASM Include="src\runtime.asm">
+      <FileType>MASM</FileType>
+    </MASM>
+    <MASM Include="src\lexer.asm">
+      <FileType>MASM</FileType>
+    </MASM>
+    <MASM Include="src\parser.asm">
+      <FileType>MASM</FileType>
+    </MASM>
+    <MASM Include="src\evaluator.asm">
+      <FileType>MASM</FileType>
+    </MASM>
+    <MASM Include="src\symtable.asm">
+      <FileType>MASM</FileType>
+    </MASM>
+    <MASM Include="src\executor.asm">
+      <FileType>MASM</FileType>
+    </MASM>
+    <MASM Include="src\fileio.asm">
+      <FileType>MASM</FileType>
+    </MASM>
+    <MASM Include="src\debugger.asm">
+      <FileType>MASM</FileType>
+    </MASM>
+    <MASM Include="src\shell.asm">
+      <FileType>MASM</FileType>
+    </MASM>
+  </ItemGroup>
+  <!-- ======================================================
+       INCLUDE FILES
+       ====================================================== -->
+  <ItemGroup>
+    <None Include="case_inconsistency.kid" />
+    <None Include="include\defines.inc" />
+    <None Include="include\globals.inc" />
+    <None Include="practice.kid" />
+    <None Include="syntax error.kid" />
+  </ItemGroup>
+  <!-- ======================================================
+       SAMPLE PROGRAMS (shown in Solution Explorer)
+       ====================================================== -->
+  <ItemGroup>
+    <None Include="kidi.kid" />
+    <None Include="programs\hello.kid" />
+    <None Include="programs\variables.kid" />
+    <None Include="programs\calculator.kid">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="programs\loops.kid" />
+    <None Include="programs\conditions.kid" />
+    <None Include="programs\functions.kid" />
+    <None Include="programs\strings.kid" />
+    <None Include="programs\grades.kid" />
+    <None Include="programs\fibonacci.kid" />
+    <None Include="programs\guessing_game.kid" />
+    <None Include="programs\demo_all_features.kid" />
+  </ItemGroup>
+  <!-- ======================================================
+       DOCUMENTATION
+       ====================================================== -->
+  <ItemGroup>
+    <None Include="docs\README.md" />
+    <None Include="docs\language_guide.md" />
+    <None Include="docs\build_instructions.md" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
+  </ImportGroup>
+</Project>
